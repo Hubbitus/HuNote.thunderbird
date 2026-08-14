@@ -1,0 +1,20 @@
+#hunote-inline {
+	background: #e6f5e9;
+	border: 1px solid #b3d6b8;
+	padding: 8px 12px;
+	margin: 4px;
+	font-family: ui-monospace, monospace;
+	font-size: 13px;
+	border-radius: 4px;
+}
+#hunote-inline .hn-hdr {
+	font-weight: bold;
+	color: #2b6b32;
+	margin-bottom: 4px;
+	font-size: 11px;
+}
+#hunote-inline .hn-body {
+	margin: 0;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
