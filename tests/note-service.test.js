@@ -72,3 +72,35 @@ describe('save conflict detection', () => {
 		expect(noteData.source).toBe('unknown-host');
 	});
 });
+
+describe('save retry on write failure', () => {
+	it('retries writeNote up to 3 times on transient failure, then succeeds', async () => {
+		let attempts = 0;
+		const api = fakeApi({
+			readValues: [{ text: '', version: 0, versions: [], timestamp: null, source: null }],
+			writeImpl: async () => {
+				attempts++;
+				if (attempts < 3) throw new Error('transient');
+				return { newMessageId: 'new-id' };
+			},
+		});
+		const result = await save(api, 'm', {
+			newText: 'x', baseVersion: 0, storeSource: false, versionsCap: 50,
+			retryDelaysMs: [0, 0, 0],
+		});
+		expect(result.conflict).toBe(false);
+		expect(attempts).toBe(3);
+	});
+
+	it('gives up after 3 failed attempts and throws', async () => {
+		const api = fakeApi({
+			readValues: [{ text: '', version: 0, versions: [], timestamp: null, source: null }],
+			writeImpl: async () => { throw new Error('always fails'); },
+		});
+		await expect(save(api, 'm', {
+			newText: 'x', baseVersion: 0, storeSource: false, versionsCap: 50,
+			retryDelaysMs: [0, 0, 0],
+		})).rejects.toThrow('always fails');
+		expect(api.writeNote).toHaveBeenCalledTimes(3);
+	});
+});
