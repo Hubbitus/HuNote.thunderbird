@@ -1,0 +1,16 @@
+{
+  "name": "hunote",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Thunderbird extension: server-stored notes via IMAP headers",
+  "scripts": {
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.0",
+    "@vitest/coverage-v8": "^2.1.0"
+  }
+}

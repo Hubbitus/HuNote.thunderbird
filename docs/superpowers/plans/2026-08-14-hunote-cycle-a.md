@@ -75,6 +75,8 @@ Rationale for split:
 - Create: `vitest.config.js`
 - Create: `.editorconfig`
 - Create: `README.md` (stub, expanded in cycle E)
+- Create: `run.tests.sh` (thin wrapper: `pnpm test "$@"`, chmod +x)
+- Create: `run.coverage.sh` (thin wrapper: `pnpm run coverage "$@"`, chmod +x)
 - Modify: `.gitignore` (add node_modules, coverage, dist)
 
 - [ ] **Step 1: Extend .gitignore**
@@ -161,8 +163,8 @@ See `docs/superpowers/specs/2026-08-14-hunote-cycle-a-design.md`.
 ## Development
 
 ```
-npm install
-npm test
+pnpm install
+pnpm test
 ```
 
 Manual install: pack `src/` into `hunote.xpi` (zip contents of `src/` at the root), then in Thunderbird → Tools → Add-ons → gear → "Install Add-on From File".
@@ -170,13 +172,13 @@ Manual install: pack `src/` into `hunote.xpi` (zip contents of `src/` at the roo
 
 - [ ] **Step 6: Install and run**
 
-Run: `npm install && npm test`
+Run: `pnpm install && pnpm test`
 Expected: `No test files found` (exit 0 or vitest-specific "no tests" message). This confirms tooling wires up. If exit non-zero because vitest treats "no tests" as failure, add `--passWithNoTests` to the script.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add .gitignore package.json package-lock.json vitest.config.js .editorconfig README.md
+git add .gitignore package.json pnpm-lock.yaml vitest.config.js .editorconfig README.md run.tests.sh run.coverage.sh
 git commit -m "chore: repo skeleton with vitest and editorconfig"
 ```
 
