@@ -7,7 +7,8 @@
   "scripts": {
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
-    "coverage": "vitest run --coverage"
+    "coverage": "vitest run --coverage",
+    "pack": "./scripts/pack.sh"
   },
   "devDependencies": {
     "vitest": "^2.1.0",
