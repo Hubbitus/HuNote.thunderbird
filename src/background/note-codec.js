@@ -100,3 +100,40 @@ function safeDecodeText(encoded) {
 		return null;
 	}
 }
+
+export function buildModifiedSource(rawSource, noteData, options) {
+	let src = rawSource.replace(/\r?\n/g, '\r\n');
+
+	src = src.replace(/^From - [^\r\n]*\r\n/, '');
+	src = src.replace(/^X-Mozilla-Status:[^\r\n]*\r\n/gm, '');
+	src = src.replace(/^X-Mozilla-Status2:[^\r\n]*\r\n/gm, '');
+	src = src.replace(/^X-Mozilla-Keys:[^\r\n]*\r\n/gm, '');
+	src = src.replace(/^X-Hu-note[^:]*:[^\r\n]*(\r\n[ \t][^\r\n]*)*\r\n/gm, '');
+
+	if (options.gmailDateHack) src = bumpDateSecond(src);
+
+	const injected = buildHuNoteHeaders(noteData);
+	const bodySep = src.indexOf('\r\n\r\n');
+	if (bodySep === -1) return src + '\r\n' + injected + '\r\n';
+	return src.slice(0, bodySep) + '\r\n' + injected + src.slice(bodySep);
+}
+
+function buildHuNoteHeaders(noteData) {
+	const lines = [];
+	lines.push('X-Hu-note: ' + foldHeaderValue(encodeNoteText(noteData.text)));
+	lines.push('X-Hu-note-timestamp: ' + noteData.timestamp);
+	if (noteData.source) lines.push('X-Hu-note-source: ' + noteData.source);
+	lines.push('X-Hu-note-version: ' + String(noteData.version));
+	lines.push('X-Hu-note-versions: ' + foldHeaderValue(encodeVersionsHeader(noteData.versions)));
+	return lines.join('\r\n');
+}
+
+function bumpDateSecond(src) {
+	return src.replace(/^(Date: [^\r\n]*?)(\d{2}):(\d{2}):(\d{2})/m,
+		(_, prefix, hh, mm, ss) => {
+			let s = parseInt(ss, 10);
+			s = s === 59 ? s - 1 : s + 1;
+			const ss2 = String(s).padStart(2, '0');
+			return `${prefix}${hh}:${mm}:${ss2}`;
+		});
+}
