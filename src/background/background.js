@@ -42,7 +42,9 @@ browser.runtime.onMessage.addListener(async (req) => {
 	try {
 		switch (req.kind) {
 			case 'load': {
-				return await service.load(browser.imapNote, req.messageId);
+				const note = await service.load(browser.imapNote, req.messageId);
+				const isImap = await browser.imapNote.isImapFolder(req.messageId);
+				return { ...note, isImap };
 			}
 			case 'save': {
 				const settings = await getSettings();

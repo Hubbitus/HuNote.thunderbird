@@ -43,6 +43,13 @@ async function init() {
 	updateCounter();
 	setStatus(loaded.text ? '✓ saved' : 'new note');
 
+	if (!loaded.isImap) {
+		textEl.disabled = true;
+		saveBtn.disabled = true;
+		saveBtn.title = 'Notes require an IMAP folder';
+		showBanner('This message is not in an IMAP folder — notes cannot be saved.');
+	}
+
 	textEl.addEventListener('input', () => {
 		hideBanner();
 		updateCounter();
