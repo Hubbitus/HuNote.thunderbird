@@ -11,6 +11,7 @@ import {
 	encodeVersionsHeader,
 	decodeVersionsHeader,
 	parseNoteFromSource,
+	buildModifiedSource,
 } from '../src/background/note-codec.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -154,5 +155,79 @@ describe('parseNoteFromSource', () => {
 	it('unfolds long X-Hu-note across continuation lines', () => {
 		const r = parseNoteFromSource(fixture('folded-note.eml'));
 		expect(r.text).toBe('A'.repeat(200));
+	});
+});
+
+describe('buildModifiedSource', () => {
+	it('strips existing X-Hu-note* and adds new set', () => {
+		const src = fixture('with-note.eml');
+		const noteData = {
+			text: 'new text',
+			timestamp: '2026-09-01T00:00:00.000Z',
+			source: 'host2',
+			version: 4,
+			versions: [{ v: 4, ts: '2026-09-01T00:00:00.000Z', source: 'host2', text: 'new text' }],
+		};
+		const result = buildModifiedSource(src, noteData, { gmailDateHack: false });
+		expect(result.match(/^X-Hu-note:/gm)?.length).toBe(1);
+		expect(result).toMatch(/^X-Hu-note-version: 4\r?\n/m);
+		expect(result).toMatch(/^X-Hu-note-source: host2\r?\n/m);
+		expect(result).toContain('bmV3IHRleHQ=');
+	});
+
+	it('omits X-Hu-note-source when source is null', () => {
+		const src = fixture('plain.eml');
+		const noteData = {
+			text: 't', timestamp: '2026-09-01T00:00:00.000Z',
+			source: null, version: 1, versions: [],
+		};
+		const result = buildModifiedSource(src, noteData, { gmailDateHack: false });
+		expect(result).not.toMatch(/^X-Hu-note-source:/m);
+	});
+
+	it('strips X-Mozilla-Status, X-Mozilla-Status2, X-Mozilla-Keys, "From " separator', () => {
+		const src = [
+			'From - Fri Aug 14 12:00:00 2026',
+			'X-Mozilla-Status: 0001',
+			'X-Mozilla-Status2: 00000000',
+			'X-Mozilla-Keys: label1 label2',
+			'From: a@b',
+			'To: c@d',
+			'Subject: s',
+			'Message-ID: <x@y>',
+			'Date: Fri, 14 Aug 2026 12:00:00 +0000',
+			'',
+			'body',
+			'',
+		].join('\r\n');
+		const noteData = {
+			text: 't', timestamp: '2026-09-01T00:00:00.000Z',
+			source: null, version: 1, versions: [],
+		};
+		const result = buildModifiedSource(src, noteData, { gmailDateHack: false });
+		expect(result).not.toMatch(/^From - /m);
+		expect(result).not.toMatch(/^X-Mozilla-Status:/m);
+		expect(result).not.toMatch(/^X-Mozilla-Status2:/m);
+		expect(result).not.toMatch(/^X-Mozilla-Keys:/m);
+	});
+
+	it('bumps Date seconds by +1 when gmailDateHack is true and seconds < 59', () => {
+		const src = fixture('plain.eml');
+		const noteData = {
+			text: 't', timestamp: '2026-09-01T00:00:00.000Z',
+			source: null, version: 1, versions: [],
+		};
+		const result = buildModifiedSource(src, noteData, { gmailDateHack: true });
+		expect(result).toMatch(/^Date: Fri, 14 Aug 2026 12:00:01 \+0000/m);
+	});
+
+	it('bumps Date seconds by -1 when gmailDateHack is true and seconds == 59', () => {
+		const src = fixture('plain.eml').replace('12:00:00', '12:00:59');
+		const noteData = {
+			text: 't', timestamp: '2026-09-01T00:00:00.000Z',
+			source: null, version: 1, versions: [],
+		};
+		const result = buildModifiedSource(src, noteData, { gmailDateHack: true });
+		expect(result).toMatch(/^Date: Fri, 14 Aug 2026 12:00:58 \+0000/m);
 	});
 });
