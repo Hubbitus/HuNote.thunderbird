@@ -56,3 +56,47 @@ export function decodeVersionsHeader(encoded) {
 		return [];
 	}
 }
+
+export function parseNoteFromSource(rawSource) {
+	const headerBlock = splitHeaderBlock(rawSource);
+	const headers = parseHeaderBlock(headerBlock);
+
+	const encodedText = headers['x-hu-note'];
+	const text = encodedText !== undefined ? safeDecodeText(encodedText) : null;
+	const timestamp = headers['x-hu-note-timestamp'] ?? null;
+	const source = headers['x-hu-note-source'] ?? null;
+	const version = parseInt(headers['x-hu-note-version'] ?? '0', 10) || 0;
+	const versions = decodeVersionsHeader(headers['x-hu-note-versions'] ?? '');
+
+	return { text, timestamp, source, version, versions };
+}
+
+function splitHeaderBlock(rawSource) {
+	const idx = rawSource.indexOf('\r\n\r\n');
+	if (idx !== -1) return rawSource.slice(0, idx);
+	const lf = rawSource.indexOf('\n\n');
+	if (lf !== -1) return rawSource.slice(0, lf);
+	return rawSource;
+}
+
+function parseHeaderBlock(block) {
+	const normalized = block.replace(/\r?\n/g, '\r\n');
+	const unfolded = normalized.replace(/\r\n[ \t]+/g, '');
+	const out = {};
+	for (const line of unfolded.split('\r\n')) {
+		const colon = line.indexOf(':');
+		if (colon === -1) continue;
+		const name = line.slice(0, colon).trim().toLowerCase();
+		const value = line.slice(colon + 1).trim();
+		out[name] = value;
+	}
+	return out;
+}
+
+function safeDecodeText(encoded) {
+	try {
+		return decodeNoteText(encoded);
+	} catch {
+		return null;
+	}
+}

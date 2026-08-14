@@ -1,0 +1,12 @@
+From: sender@example.com
+To: rcpt@example.com
+Subject: hello
+Message-ID: <with-note-1@example.com>
+Date: Fri, 14 Aug 2026 12:00:00 +0000
+X-Hu-note: aGVsbG8=
+X-Hu-note-timestamp: 2026-08-14T12:00:00.000Z
+X-Hu-note-source: my-host
+X-Hu-note-version: 3
+X-Hu-note-versions: W10=
+
+body

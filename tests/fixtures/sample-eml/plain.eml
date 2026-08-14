@@ -1,0 +1,7 @@
+From: sender@example.com
+To: rcpt@example.com
+Subject: hello
+Message-ID: <plain-1@example.com>
+Date: Fri, 14 Aug 2026 12:00:00 +0000
+
+body

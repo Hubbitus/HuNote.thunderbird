@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
 	encodeNoteText,
 	decodeNoteText,
@@ -7,7 +10,11 @@ import {
 	mergeVersion,
 	encodeVersionsHeader,
 	decodeVersionsHeader,
+	parseNoteFromSource,
 } from '../src/background/note-codec.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const fixture = (name) => readFileSync(join(__dirname, 'fixtures/sample-eml', name), 'utf8');
 
 describe('encodeNoteText / decodeNoteText', () => {
 	it('roundtrips ASCII', () => {
@@ -122,5 +129,30 @@ describe('encodeVersionsHeader / decodeVersionsHeader', () => {
 	it('returns [] for valid base64 but invalid JSON', () => {
 		const notJson = btoa('this is not json');
 		expect(decodeVersionsHeader(notJson)).toEqual([]);
+	});
+});
+
+describe('parseNoteFromSource', () => {
+	it('returns null-shaped result for source without X-Hu-note', () => {
+		const r = parseNoteFromSource(fixture('plain.eml'));
+		expect(r.text).toBeNull();
+		expect(r.version).toBe(0);
+		expect(r.versions).toEqual([]);
+		expect(r.timestamp).toBeNull();
+		expect(r.source).toBeNull();
+	});
+
+	it('parses a simple note', () => {
+		const r = parseNoteFromSource(fixture('with-note.eml'));
+		expect(r.text).toBe('hello');
+		expect(r.timestamp).toBe('2026-08-14T12:00:00.000Z');
+		expect(r.source).toBe('my-host');
+		expect(r.version).toBe(3);
+		expect(r.versions).toEqual([]);
+	});
+
+	it('unfolds long X-Hu-note across continuation lines', () => {
+		const r = parseNoteFromSource(fixture('folded-note.eml'));
+		expect(r.text).toBe('A'.repeat(200));
 	});
 });
