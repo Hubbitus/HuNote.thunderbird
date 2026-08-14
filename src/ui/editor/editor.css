@@ -1,0 +1,46 @@
+html, body {
+	height: 100%;
+	margin: 0;
+	font-family: system-ui, sans-serif;
+	background: #e6f5e9;
+}
+body {
+	display: flex;
+	flex-direction: column;
+	padding: 8px;
+	box-sizing: border-box;
+	gap: 4px;
+}
+#statusBar {
+	display: flex;
+	justify-content: space-between;
+	font-size: 12px;
+	color: #444;
+}
+#noteText {
+	flex: 1 1 auto;
+	background: #dff0e2;
+	border: 1px solid #b3d6b8;
+	padding: 6px;
+	font-family: ui-monospace, monospace;
+	font-size: 13px;
+	resize: none;
+}
+#buttons {
+	display: flex;
+	gap: 8px;
+	justify-content: flex-end;
+}
+button {
+	padding: 4px 12px;
+}
+button:disabled {
+	opacity: 0.5;
+}
+#banner {
+	background: #ffe4e1;
+	border: 1px solid #d99;
+	padding: 6px;
+	font-size: 12px;
+}
+#banner.ok { background: #dff0e2; border-color: #7fbf87; }
