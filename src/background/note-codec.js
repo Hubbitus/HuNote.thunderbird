@@ -11,3 +11,22 @@ export function decodeNoteText(encoded) {
 	for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
 	return new TextDecoder().decode(bytes);
 }
+
+const MAX_CONTINUATION_LEN = 75;
+
+export function foldHeaderValue(value) {
+	if (value.length <= MAX_CONTINUATION_LEN + 1) return value;
+	const chunks = [];
+	let i = 0;
+	chunks.push(value.slice(0, MAX_CONTINUATION_LEN + 1));
+	i = MAX_CONTINUATION_LEN + 1;
+	while (i < value.length) {
+		chunks.push(value.slice(i, i + MAX_CONTINUATION_LEN));
+		i += MAX_CONTINUATION_LEN;
+	}
+	return chunks.join('\r\n ');
+}
+
+export function unfoldHeaderValue(value) {
+	return value.replace(/\r\n[ \t]+/g, '');
+}
