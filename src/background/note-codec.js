@@ -30,3 +30,29 @@ export function foldHeaderValue(value) {
 export function unfoldHeaderValue(value) {
 	return value.replace(/\r\n[ \t]+/g, '');
 }
+
+export function mergeVersion(existing, next, cap) {
+	const arr = [...existing, next];
+	if (arr.length <= cap) return arr;
+	return arr.slice(arr.length - cap);
+}
+
+export function encodeVersionsHeader(versions) {
+	return encodeNoteText(JSON.stringify(versions));
+}
+
+export function decodeVersionsHeader(encoded) {
+	if (!encoded) return [];
+	let decoded;
+	try {
+		decoded = decodeNoteText(encoded);
+	} catch {
+		return [];
+	}
+	try {
+		const parsed = JSON.parse(decoded);
+		return Array.isArray(parsed) ? parsed : [];
+	} catch {
+		return [];
+	}
+}

@@ -4,6 +4,9 @@ import {
 	decodeNoteText,
 	foldHeaderValue,
 	unfoldHeaderValue,
+	mergeVersion,
+	encodeVersionsHeader,
+	decodeVersionsHeader,
 } from '../src/background/note-codec.js';
 
 describe('encodeNoteText / decodeNoteText', () => {
@@ -65,5 +68,59 @@ describe('unfoldHeaderValue', () => {
 	it('strips CRLF followed by any whitespace runs', () => {
 		const folded = 'aaa\r\n bbb\r\n\tccc';
 		expect(unfoldHeaderValue(folded)).toBe('aaabbbccc');
+	});
+});
+
+describe('mergeVersion', () => {
+	it('appends new entry when under cap', () => {
+		const existing = [
+			{ v: 1, ts: '2026-01-01T00:00:00.000Z', source: 'h', text: 'a' },
+		];
+		const next = { v: 2, ts: '2026-01-02T00:00:00.000Z', source: 'h', text: 'b' };
+		const merged = mergeVersion(existing, next, 10);
+		expect(merged).toEqual([...existing, next]);
+	});
+
+	it('drops oldest when cap reached', () => {
+		const existing = Array.from({ length: 3 }, (_, i) => ({
+			v: i + 1, ts: `2026-01-0${i + 1}T00:00:00.000Z`, source: 'h', text: `t${i}`,
+		}));
+		const next = { v: 4, ts: '2026-01-04T00:00:00.000Z', source: 'h', text: 't3' };
+		const merged = mergeVersion(existing, next, 3);
+		expect(merged).toHaveLength(3);
+		expect(merged[0].v).toBe(2);
+		expect(merged[2].v).toBe(4);
+	});
+
+	it('keeps ascending v order', () => {
+		const merged = mergeVersion(
+			[{ v: 5, ts: 't', source: null, text: 'x' }],
+			{ v: 6, ts: 't', source: null, text: 'y' },
+			10
+		);
+		expect(merged.map(e => e.v)).toEqual([5, 6]);
+	});
+});
+
+describe('encodeVersionsHeader / decodeVersionsHeader', () => {
+	it('roundtrips a versions array', () => {
+		const versions = [
+			{ v: 1, ts: '2026-01-01T00:00:00.000Z', source: 'host', text: 'привет' },
+			{ v: 2, ts: '2026-01-02T00:00:00.000Z', source: null, text: 'hi' },
+		];
+		expect(decodeVersionsHeader(encodeVersionsHeader(versions))).toEqual(versions);
+	});
+
+	it('decodes empty header value to empty array', () => {
+		expect(decodeVersionsHeader('')).toEqual([]);
+	});
+
+	it('returns [] for malformed base64', () => {
+		expect(decodeVersionsHeader('!!!not-base64!!!')).toEqual([]);
+	});
+
+	it('returns [] for valid base64 but invalid JSON', () => {
+		const notJson = btoa('this is not json');
+		expect(decodeVersionsHeader(notJson)).toEqual([]);
 	});
 });
