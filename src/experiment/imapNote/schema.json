@@ -1,0 +1,69 @@
+[
+  {
+    "namespace": "imapNote",
+    "functions": [
+      {
+        "name": "readNote",
+        "type": "function",
+        "async": true,
+        "description": "Read HuNote headers from a message by Message-ID.",
+        "parameters": [
+          { "name": "messageId", "type": "string", "description": "RFC 5322 Message-ID (without angle brackets)" }
+        ]
+      },
+      {
+        "name": "writeNote",
+        "type": "function",
+        "async": true,
+        "description": "APPEND a modified copy of the message with new HuNote headers, then delete original.",
+        "parameters": [
+          { "name": "messageId", "type": "string" },
+          {
+            "name": "noteData",
+            "type": "object",
+            "properties": {
+              "text": { "type": "string" },
+              "timestamp": { "type": "string" },
+              "source": { "type": "string", "optional": true },
+              "version": { "type": "integer" },
+              "versions": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+            }
+          },
+          {
+            "name": "options",
+            "type": "object",
+            "optional": true,
+            "properties": {
+              "gmailDateHack": { "type": "boolean", "optional": true }
+            }
+          }
+        ]
+      },
+      {
+        "name": "getHostname",
+        "type": "function",
+        "async": true,
+        "description": "Return the OS hostname.",
+        "parameters": []
+      },
+      {
+        "name": "isImapFolder",
+        "type": "function",
+        "async": true,
+        "description": "Return true if the folder containing this message is IMAP.",
+        "parameters": [
+          { "name": "messageId", "type": "string" }
+        ]
+      },
+      {
+        "name": "isGmailFolder",
+        "type": "function",
+        "async": true,
+        "description": "Return true if the folder's IMAP server is Gmail.",
+        "parameters": [
+          { "name": "messageId", "type": "string" }
+        ]
+      }
+    ]
+  }
+]
