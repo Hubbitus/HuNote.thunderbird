@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "HuNote",
+  "version": "0.1.0",
+  "description": "Server-stored notes for email messages via IMAP headers.",
+  "author": "Pavel Alexeev",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "hunote@hubbitus.info",
+      "strict_min_version": "140.0"
+    }
+  },
+  "background": {
+    "scripts": ["background/background.js"],
+    "type": "module"
+  },
+  "options_ui": {
+    "page": "ui/options/options.html",
+    "open_in_tab": true
+  },
+  "commands": {
+    "open-note-editor": {
+      "suggested_key": { "default": "Ctrl+Shift+N" },
+      "description": "Open HuNote editor for selected message"
+    }
+  },
+  "message_display_scripts": [
+    { "js": ["ui/reader/reader.js"], "css": ["ui/reader/reader.css"] }
+  ],
+  "experiment_apis": {
+    "imapNote": {
+      "schema": "experiment/imapNote/schema.json",
+      "parent": {
+        "scopes": ["addon_parent"],
+        "script": "experiment/imapNote/implementation.js",
+        "paths": [["imapNote"]]
+      }
+    }
+  },
+  "permissions": ["messagesRead", "messagesUpdate", "storage", "notifications", "accountsRead"],
+  "icons": { "48": "icons/hunote-48.png", "96": "icons/hunote-96.png" }
+}
