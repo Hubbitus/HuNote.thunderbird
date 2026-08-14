@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+	<head>
+		<meta charset="utf-8">
+		<link rel="stylesheet" href="options.css">
+		<title>HuNote Settings</title>
+	</head>
+	<body>
+		<h1>HuNote Settings</h1>
+		<label>
+			Max note length (chars):
+			<input id="maxNoteLength" type="number" min="1" max="100000" step="1">
+		</label>
+		<label>
+			<input id="storeSource" type="checkbox">
+			Record host name in <code>X-Hu-note-source</code>
+		</label>
+		<label>
+			Version history cap:
+			<input id="versionsCap" type="number" min="1" max="10000" step="1">
+		</label>
+		<p class="hint">
+			Hotkey is configured in Thunderbird → Add-ons and Themes → gear icon → Manage Extension Shortcuts (or the platform equivalent).
+		</p>
+		<div id="saveIndicator" hidden>✓ saved</div>
+		<script src="options.js" type="module"></script>
+	</body>
+</html>
