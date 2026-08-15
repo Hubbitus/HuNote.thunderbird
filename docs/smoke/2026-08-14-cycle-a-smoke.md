@@ -3,7 +3,7 @@
 Two IMAP servers required: local Dovecot (any test account) and one real Gmail account.
 
 ## Setup
-1. `pnpm run pack` → `dist/hunote.xpi`.
+1. `make pack` → `dist/hunote.xpi`.
 2. Open a clean Thunderbird 140+ profile: `thunderbird -CreateProfile HuNoteTest && thunderbird -P HuNoteTest -no-remote`.
 3. Add the Dovecot IMAP account and the Gmail IMAP account.
 4. Install `dist/hunote.xpi` via `Tools → Add-ons → gear → Install Add-on From File`. Confirm the icon appears.
