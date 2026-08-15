@@ -1,0 +1,31 @@
+<!doctype html>
+<html>
+	<head>
+		<meta charset="utf-8">
+		<link rel="stylesheet" href="viewer.css">
+		<title>HuNote — history</title>
+	</head>
+	<body>
+		<header id="hn-header">
+			<h1 id="hn-title">HuNote — history</h1>
+			<div id="hn-compare">
+				<label>
+					<span data-i18n="historyCompareLabel">Compare</span>
+					v<select id="leftSelect"></select>
+					with
+					v<select id="rightSelect"></select>
+				</label>
+			</div>
+		</header>
+		<main id="hn-main">
+			<aside id="hn-list" aria-label="version list"></aside>
+			<section id="hn-diff">
+				<div id="hn-diff-left" class="hn-diff-pane"><pre></pre></div>
+				<div id="hn-diff-right" class="hn-diff-pane"><pre></pre></div>
+			</section>
+		</main>
+		<div id="hn-empty" hidden data-i18n="historyEmpty">No history yet. Save the note again to start a version chain.</div>
+		<div id="hn-banner" hidden></div>
+		<script src="viewer.js" type="module"></script>
+	</body>
+</html>
