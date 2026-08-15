@@ -66,6 +66,12 @@ browser.runtime.onMessage.addListener(async (req) => {
 				await browser.storage.local.set(req.patch);
 				return await getSettings();
 			}
+			case 'openViewer': {
+				const url = browser.runtime.getURL('ui/viewer/viewer.html')
+					+ '?messageId=' + encodeURIComponent(req.messageId);
+				await browser.tabs.create({ url });
+				return { ok: true };
+			}
 		}
 	} catch (e) {
 		return { error: String(e?.message ?? e) };
