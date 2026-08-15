@@ -199,7 +199,8 @@ function buildModifiedSourceImpl(rawSource, noteData, gmailDateHack) {
 }
 
 function writeTempEml(content) {
-	const file = FileUtils.getFile("TmpD", ["HuNote-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8) + ".eml"]);
+	const file = Services.dirsvc.get("TmpD", Ci.nsIFile);
+	file.append("HuNote-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8) + ".eml");
 	const stream = Cc["@mozilla.org/network/file-output-stream;1"].createInstance(Ci.nsIFileOutputStream);
 	stream.init(file, 0x02 | 0x08 | 0x20, 0o600, 0);
 	const bytes = new TextEncoder().encode(content);
@@ -215,13 +216,13 @@ function appendMessage(folder, tmpFile, flags, keywords) {
 		let assignedKey = null;
 		const listener = {
 			QueryInterface: ChromeUtils.generateQI(["nsIMsgCopyServiceListener"]),
-			GetMessageId() {},
-			OnProgress() {},
-			OnStartCopy() {},
-			SetMessageKey(key) { assignedKey = key; },
-			OnStopCopy(status) {
+			getMessageId() { return null; },
+			onProgress() {},
+			onStartCopy() {},
+			setMessageKey(key) { assignedKey = key; },
+			onStopCopy(status) {
 				if (Components.isSuccessCode(status) && assignedKey !== null) resolve(assignedKey);
-				else reject(new Error("copyFileMessage failed: " + status));
+				else reject(new Error("copyFileMessage failed: 0x" + Number(status).toString(16)));
 			},
 		};
 		MailServices.copy.copyFileMessage(tmpFile, folder, null, false, flags, keywords, listener, null);
