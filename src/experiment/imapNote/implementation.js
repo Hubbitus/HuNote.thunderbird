@@ -92,7 +92,7 @@ function tryDecode(b64) {
 	try { return decodeBase64Utf8(b64); } catch { return null; }
 }
 
-var imapNote = class extends ExtensionCommon.ExtensionAPI {
+this.imapNote = class extends ExtensionCommon.ExtensionAPI {
 	getAPI(context) {
 		return {
 			imapNote: {
@@ -226,4 +226,3 @@ function appendMessage(folder, tmpFile, flags, keywords) {
 	});
 }
 
-this.imapNote = imapNote;
