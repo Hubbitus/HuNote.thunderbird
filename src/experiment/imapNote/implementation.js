@@ -1,5 +1,7 @@
 "use strict";
 
+Cu.importGlobalProperties(["TextEncoder", "TextDecoder", "atob", "btoa"]);
+
 var { ExtensionCommon } = ChromeUtils.importESModule("resource://gre/modules/ExtensionCommon.sys.mjs");
 var { MailServices } = ChromeUtils.importESModule("resource:///modules/MailServices.sys.mjs");
 var { XPCOMUtils } = ChromeUtils.importESModule("resource://gre/modules/XPCOMUtils.sys.mjs");
