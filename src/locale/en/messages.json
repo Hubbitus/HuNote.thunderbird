@@ -1,4 +1,10 @@
 {
   "extensionName": { "message": "HuNote" },
-  "extensionDescription": { "message": "Server-stored notes for email messages via IMAP headers." }
+  "extensionDescription": { "message": "Server-stored notes for email messages via IMAP headers." },
+  "historyBtn": { "message": "History" },
+  "historyTitle": { "message": "HuNote — history" },
+  "historyCompareLabel": { "message": "Compare" },
+  "historyEmpty": { "message": "No history yet. Save the note again to start a version chain." },
+  "historyCurrent": { "message": "current" },
+  "historyNoDiff": { "message": "No differences" }
 }
