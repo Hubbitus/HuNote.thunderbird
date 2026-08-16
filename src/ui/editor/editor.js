@@ -99,6 +99,7 @@ saveBtn.addEventListener('click', async () => {
 	originalText = textEl.value;
 	setStatus('✓ saved ' + new Date().toLocaleTimeString());
 	showBanner('Saved.', true);
+	setTimeout(() => window.close(), 1500);
 });
 
 historyBtn.addEventListener('click', () => {
