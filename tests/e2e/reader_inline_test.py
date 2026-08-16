@@ -439,6 +439,124 @@ def probe_viewer(m: Marionette) -> dict:
         """)
 
 
+def change_viewer_right_dropdown(m: Marionette, new_value: str) -> dict:
+    """Change #rightSelect via change event → verify diff re-renders. Returns updated
+    left/right selects + line counts."""
+    with m.using_context("chrome"):
+        return m.execute_async_script(r"""
+            let [newVal, resolve] = arguments;
+            (async () => {
+                const win = Services.wm.getMostRecentWindow("mail:3pane");
+                const tabmail = win.document.getElementById("tabmail");
+                let br = null;
+                for (const t of tabmail.tabInfo) {
+                    const u = t.browser && t.browser.currentURI && t.browser.currentURI.spec;
+                    if (u && u.includes("ui/viewer/viewer.html")) { br = t.browser; break; }
+                }
+                if (!br) { resolve({ok:false, err:"no viewer tab"}); return; }
+                const mm = br.messageManager || br.frameLoader.messageManager;
+                let done = false;
+                const listener = (msg) => {
+                    if (done) return;
+                    done = true;
+                    mm.removeMessageListener("HuTest:reply", listener);
+                    resolve(msg.data);
+                };
+                mm.addMessageListener("HuTest:reply", listener);
+                mm.loadFrameScript("data:application/javascript," + encodeURIComponent(`
+                    (async () => {
+                        const doc = content.document;
+                        const rs = doc.getElementById("rightSelect");
+                        rs.value = "` + newVal + `";
+                        rs.dispatchEvent(new content.Event("change"));
+                        // Small settle
+                        await new Promise(r => content.setTimeout(r, 500));
+                        const leftLines = Array.from(doc.querySelectorAll("#hn-diff-left pre .hn-line"));
+                        const rightLines = Array.from(doc.querySelectorAll("#hn-diff-right pre .hn-line"));
+                        sendAsyncMessage("HuTest:reply", {
+                            ok: true,
+                            leftSelect: doc.getElementById("leftSelect").value,
+                            rightSelect: rs.value,
+                            leftLineCount: leftLines.length,
+                            rightLineCount: rightLines.length,
+                            removedCount: leftLines.filter(l => l.classList.contains("removed")).length,
+                            addedCount: rightLines.filter(l => l.classList.contains("added")).length,
+                            leftTexts: leftLines.map(l => l.textContent),
+                            rightTexts: rightLines.map(l => l.textContent),
+                        });
+                    })();
+                `), false);
+                setTimeout(() => { if (!done) { done = true; resolve({ok:false, err:"timeout"}); } }, 10000);
+            })();
+        """, script_args=[new_value])
+
+
+def open_viewer_direct_url(m: Marionette, message_id: str) -> dict:
+    """Open viewer.html directly with a messageId → probe empty state + banner state.
+    For missing hdr: viewer receives {version:0, versions:[]}, shows #hn-empty (no banner)."""
+    with m.using_context("chrome"):
+        return m.execute_async_script(r"""
+            let [mid, resolve] = arguments;
+            (async () => {
+                const {ExtensionParent} = ChromeUtils.importESModule("resource://gre/modules/ExtensionParent.sys.mjs");
+                const ext = ExtensionParent.GlobalManager.getExtension("hunote@hubbitus.info");
+                const url = ext.baseURI.resolve("ui/viewer/viewer.html") + "?messageId=" + encodeURIComponent(mid);
+                const win = Services.wm.getMostRecentWindow("mail:3pane");
+                const tabmail = win.document.getElementById("tabmail");
+                tabmail.openTab("contentTab", { url });
+                let br = null;
+                for (let i = 0; i < 30 && !br; i++) {
+                    for (const t of tabmail.tabInfo) {
+                        const u = t.browser && t.browser.currentURI && t.browser.currentURI.spec;
+                        if (u && u.includes("ui/viewer/viewer.html") && u.includes(encodeURIComponent(mid))) {
+                            br = t.browser; break;
+                        }
+                    }
+                    if (!br) await new Promise(r => setTimeout(r, 300));
+                }
+                if (!br) { resolve({ok:false, err:"viewer tab not found"}); return; }
+                const mm = br.messageManager || br.frameLoader.messageManager;
+                if (!mm) { resolve({ok:false, err:"no mm"}); return; }
+                let done = false;
+                const listener = (msg) => {
+                    if (done) return;
+                    done = true;
+                    mm.removeMessageListener("HuTest:reply", listener);
+                    resolve(msg.data);
+                };
+                mm.addMessageListener("HuTest:reply", listener);
+                mm.loadFrameScript("data:application/javascript," + encodeURIComponent(`
+                    (async () => {
+                        const doc = content.document;
+                        // Wait for viewer to settle (either banner OR empty OR list rendered)
+                        for (let i = 0; i < 30; i++) {
+                            const banner = doc.getElementById("hn-banner");
+                            const empty = doc.getElementById("hn-empty");
+                            const list = doc.getElementById("hn-list");
+                            const bannerVisible = banner && !banner.hidden && banner.textContent.trim().length > 0;
+                            const emptyVisible = empty && !empty.hidden;
+                            const listHasRows = list && list.querySelectorAll(".hn-version").length > 0;
+                            if (bannerVisible || emptyVisible || listHasRows) break;
+                            await new Promise(r => content.setTimeout(r, 300));
+                        }
+                        const banner = doc.getElementById("hn-banner");
+                        const empty = doc.getElementById("hn-empty");
+                        const list = doc.getElementById("hn-list");
+                        sendAsyncMessage("HuTest:reply", {
+                            ok: true,
+                            bannerVisible: banner && !banner.hidden && banner.textContent.trim().length > 0,
+                            bannerText: banner ? banner.textContent.trim() : null,
+                            emptyVisible: empty && !empty.hidden,
+                            emptyText: empty ? empty.textContent.trim() : null,
+                            rowCount: list ? list.querySelectorAll(".hn-version").length : 0,
+                        });
+                    })();
+                `), false);
+                setTimeout(() => { if (!done) { done = true; resolve({ok:false, err:"frame script timeout"}); } }, 15000);
+            })();
+        """, script_args=[message_id])
+
+
 def send_new_smtp_msg(subject: str, message_id: str, body: str = "new body") -> None:
     """Deliver new msg via SMTP → greenmail auto-loops it to INBOX."""
     msg = EmailMessage()
@@ -571,8 +689,50 @@ def test_history_present(m: Marionette) -> None:
               f"diff shows removed or added lines (removed={v['removedCount']}, added={v['addedCount']})")
 
 
+def test_viewer_dropdown_rerender(m: Marionette) -> None:
+    print("\n[5] viewer: change rightSelect dropdown → diff re-renders")
+    select_message(m, r"^hello$")
+    info = wait_for_inline(m, expect_text=None, reselect_subject=r"^hello$")
+    assert_ok(info["matched"] is not None, "inline present")
+    assert_ok(info["matched"]["hasHistoryBtn"], "History button visible")
+
+    opened = open_viewer_via_history_button(m)
+    assert_ok(opened.get("ok"), f"viewer opened (err={opened.get('err')})")
+
+    # Baseline probe: default is latest vs prev — capture counts
+    baseline = probe_viewer(m)
+    v0 = baseline["found"]
+    assert_ok(v0.get("ok"), "baseline diff rendered")
+    _log(f"baseline: left={v0['leftSelect']} right={v0['rightSelect']} "
+         f"removed={v0['removedCount']} added={v0['addedCount']}")
+
+    # Change right dropdown to same version as left → diff should collapse (0 removed/added)
+    changed = change_viewer_right_dropdown(m, v0["leftSelect"])
+    _log(f"after change right→{v0['leftSelect']}: {changed}")
+    assert_ok(changed.get("ok"), f"dropdown change dispatched (err={changed.get('err')})")
+    assert_ok(changed["rightSelect"] == v0["leftSelect"],
+              f"rightSelect updated to {v0['leftSelect']} (got {changed['rightSelect']})")
+    # Same version both sides → no diff markers
+    assert_ok(changed["removedCount"] == 0 and changed["addedCount"] == 0,
+              f"same version on both sides → no diff markers "
+              f"(removed={changed['removedCount']}, added={changed['addedCount']})")
+
+
+def test_viewer_bogus_messageid_banner(m: Marionette) -> None:
+    print("\n[6] viewer: bogus messageId → empty state shows (no history)")
+    bogus = f"does-not-exist-{int(time.time())}@bogus.local"
+    r = open_viewer_direct_url(m, bogus)
+    _log(f"bogus viewer: {r}")
+    assert_ok(r.get("ok"), f"viewer probe reached frame (err={r.get('err')})")
+    # readNote returns {version:0, versions:[]} for missing hdr → viewer shows #hn-empty,
+    # doesn't error, no rows in list
+    assert_ok(r["emptyVisible"], f"empty state visible (empty={r['emptyVisible']}, banner={r['bannerVisible']!r})")
+    assert_ok(r["rowCount"] <= 1, f"at most 1 version row for missing note (got {r['rowCount']})")
+    assert_ok(len(r["emptyText"]) > 0, f"empty state has text: {r['emptyText'][:80]!r}")
+
+
 def test_new_message_arrival(m: Marionette) -> None:
-    print("\n[5] new SMTP message arrives + appears in INBOX")
+    print("\n[7] new SMTP message arrives + appears in INBOX")
     before = sync_inbox(m)
     before_count = before.get("count", 0)
     _log(f"inbox before: {before_count} msgs")
@@ -614,6 +774,8 @@ def main() -> int:
         test_create_note_via_hotkey(m)
         test_edit_note_via_edit_button(m)
         test_history_present(m)
+        test_viewer_dropdown_rerender(m)
+        test_viewer_bogus_messageid_banner(m)
         test_new_message_arrival(m)
         print("\n=== ALL TESTS PASSED ===")
     finally:
