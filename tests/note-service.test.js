@@ -45,8 +45,11 @@ describe('save conflict detection', () => {
 		expect(noteData.version).toBe(4);
 		expect(noteData.text).toBe('new');
 		expect(noteData.source).toBeNull();
-		expect(noteData.versions).toHaveLength(1);
-		expect(noteData.versions[0].v).toBe(4);
+		// v3 archived (prior current) + v4 appended (new current)
+		expect(noteData.versions).toHaveLength(2);
+		expect(noteData.versions.map((e) => e.v)).toEqual([3, 4]);
+		expect(noteData.versions[0].text).toBe('old');
+		expect(noteData.versions[1].text).toBe('new');
 	});
 
 	it('includes source when storeSource is true', async () => {
