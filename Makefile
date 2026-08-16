@@ -1,4 +1,4 @@
-.PHONY: help test coverage pack run run-fresh clean
+.PHONY: help test test-e2e test-e2e-gui coverage pack run run-fresh clean
 
 XPI      := dist/hunote.xpi
 SRC_DIR  := src
@@ -8,15 +8,23 @@ help:
 	@echo "HuNote — Thunderbird extension (server-stored notes via IMAP headers)"
 	@echo ""
 	@echo "Targets:"
-	@echo "  test       Run unit tests (vitest)"
-	@echo "  coverage   Run tests with coverage report"
+	@echo "  test          Run unit tests (vitest)"
+	@echo "  test-e2e      Run unit + E2E (headless via xvfb)"
+	@echo "  test-e2e-gui  Run unit + E2E with visible TB window"
+	@echo "  coverage      Run tests with coverage report"
 	@echo "  pack       Build $(XPI) from $(SRC_DIR)/"
 	@echo "  run        Launch Thunderbird with disposable dev profile (reuse)"
 	@echo "  run-fresh  Same as run but wipes .tmp/test-profile first"
 	@echo "  clean      Remove $(DIST_DIR)/ and coverage output"
 
 test:
-	pnpm exec vitest run --passWithNoTests
+	./run.tests.sh
+
+test-e2e:
+	./run.tests.sh --e2e
+
+test-e2e-gui:
+	./run.tests.sh --e2e --with-gui
 
 coverage:
 	pnpm exec vitest run --coverage

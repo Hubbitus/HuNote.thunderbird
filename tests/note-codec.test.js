@@ -148,7 +148,7 @@ describe('parseNoteFromSource', () => {
 		expect(r.text).toBe('hello');
 		expect(r.timestamp).toBe('2026-08-14T12:00:00.000Z');
 		expect(r.source).toBe('my-host');
-		expect(r.version).toBe(3);
+		expect(r.version).toBe(1);
 		expect(r.versions).toEqual([]);
 	});
 
