@@ -20,6 +20,29 @@ The note travels with the message. Move it to a folder, archive it, forward the 
 
 Trade-off: writing a note performs an IMAP APPEND + EXPUNGE (the message UID changes). Reads are free.
 
+## ⚠️ How saving works — read this before you use HuNote
+
+IMAP itself has no "modify headers on an existing message" operation. Neither the raw IMAP protocol nor Gmail's flavor of it (`X-GM-LABELS`, `X-GM-MSGID`) expose a way to mutate the RFC 5322 headers of a stored message. Custom flags (`\Flag` keywords) exist but hold at most a short label per flag, not free-text notes.
+
+To store a note in headers HuNote therefore does the only thing IMAP allows:
+
+1. **APPEND** a full copy of the message to the same folder, with the note headers added / updated.
+2. **DELETE + EXPUNGE** the original message.
+
+This is not a HuNote quirk — every Thunderbird extension that mutates message headers must do the same thing. Prior art using the identical APPEND+DELETE pattern: [headerTools-lite-NG](https://github.com/opto/headerTools-lite-NG) (the reference implementation HuNote's Experiment API is directly modeled on — see its `MailHeader.jsm`).
+
+The message you saw is the same message — same body, same subject, same From/To — but the server sees a **new** message. Consequences:
+
+- **UID changes.** Any tool that tracks messages by IMAP UID will treat the note-save as "old message deleted, new message arrived." This affects:
+  - **OfflineIMAP**, **isync/mbsync**, **imapsync** — will re-download the new copy on next sync.
+  - Any script or filter keyed by UID.
+  - Server-side rules that fire on new-message arrival (they will re-fire).
+- **On Gmail the internal date drifts +1 second per save (monotonic).** APPEND requires a new INTERNALDATE. HuNote passes the original message's date, but Gmail rejects an APPEND whose (body + date) matches an existing message as a deduplication measure. HuNote adds `+1s` to defeat this (Gmail Date-hack). Toggling `±1s` by parity does not help: Gmail keeps every message forever in `[Gmail]/All Mail` even after IMAP `DELETE + EXPUNGE` from a user label (EXPUNGE on a label only removes the label, not the message); so a save that reused a prior second would still collide with the still-live copy in All Mail. Non-Gmail servers (Dovecot, Cyrus, Courier, greenmail) have no such dedup and the original date is preserved — the hack is applied only when the folder is detected as Gmail.
+- **Server storage grows briefly.** Between APPEND and EXPUNGE both copies exist. On providers that keep a Trash/Deleted-Items folder for expunged messages you may accumulate old copies until Trash is emptied.
+- **Message-ID (`RFC 5322`) is preserved** — that's what HuNote uses to find the message again after save, and how the reader auto-refreshes to the new copy. If your mail flow rewrites Message-ID, HuNote will lose the note on the next save.
+
+If any of the above is unacceptable for your workflow — heavy sync tooling, quota-constrained mailbox, filters that must not re-fire — do not use HuNote on that account.
+
 ## Features (Cycle A)
 
 - Editor popup with textarea, char counter, dirty indicator, explicit **Save** / **Cancel**.
