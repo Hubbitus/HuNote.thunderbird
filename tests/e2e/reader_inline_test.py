@@ -662,8 +662,35 @@ def test_edit_note_via_edit_button(m: Marionette) -> None:
     assert_ok(info["matched"]["bodyText"] == "edited via button", 'body text == "edited via button"')
 
 
+def test_reader_auto_refresh_after_save(m: Marionette) -> None:
+    """Regression: after Edit-button save, inline widget must show new version WITHOUT
+    the user reselecting the message (bg broadcasts noteUpdated → reader re-renders)."""
+    print("\n[4] auto-refresh: Edit save → inline updates in place (no reselect)")
+    sel = select_message(m, r"^hello$")
+    assert_ok(sel["ok"], "message 'hello' selected")
+    info = wait_for_inline(m, expect_text=None, reselect_subject=r"^hello$")
+    assert_ok(info["matched"] is not None, "inline visible before edit")
+    before_text = info["matched"]["bodyText"]
+    _log(f"before: {before_text!r}")
+
+    new_body = f"auto-refresh {int(time.time())}"
+    res = _save_via_edit_button(m, new_body)
+    assert_ok(res["ok"], f"editor save ok (status: {res.get('status')!r})")
+
+    # KEY: do NOT reselect. Poll inline for new body via broadcast path only.
+    matched = None
+    for _ in range(20):
+        info = check_inline(m)
+        if info.get("matched") and info["matched"]["bodyText"] == new_body:
+            matched = info["matched"]
+            break
+        time.sleep(0.5)
+    assert_ok(matched is not None,
+              f'inline auto-refreshed to new body without reselect (got {(info.get("matched") or {}).get("bodyText")!r})')
+
+
 def test_history_present(m: Marionette) -> None:
-    print("\n[4] history: click History btn → viewer opens → click old version → diff renders")
+    print("\n[5] history: click History btn → viewer opens → click old version → diff renders")
     select_message(m, r"^hello$")
     info = wait_for_inline(m, expect_text=None, reselect_subject=r"^hello$")
     assert_ok(info["matched"] is not None, "inline present")
@@ -690,7 +717,7 @@ def test_history_present(m: Marionette) -> None:
 
 
 def test_viewer_dropdown_rerender(m: Marionette) -> None:
-    print("\n[5] viewer: change rightSelect dropdown → diff re-renders")
+    print("\n[6] viewer: change rightSelect dropdown → diff re-renders")
     select_message(m, r"^hello$")
     info = wait_for_inline(m, expect_text=None, reselect_subject=r"^hello$")
     assert_ok(info["matched"] is not None, "inline present")
@@ -719,7 +746,7 @@ def test_viewer_dropdown_rerender(m: Marionette) -> None:
 
 
 def test_viewer_bogus_messageid_banner(m: Marionette) -> None:
-    print("\n[6] viewer: bogus messageId → empty state shows (no history)")
+    print("\n[7] viewer: bogus messageId → empty state shows (no history)")
     bogus = f"does-not-exist-{int(time.time())}@bogus.local"
     r = open_viewer_direct_url(m, bogus)
     _log(f"bogus viewer: {r}")
@@ -732,7 +759,7 @@ def test_viewer_bogus_messageid_banner(m: Marionette) -> None:
 
 
 def test_new_message_arrival(m: Marionette) -> None:
-    print("\n[7] new SMTP message arrives + appears in INBOX")
+    print("\n[8] new SMTP message arrives + appears in INBOX")
     before = sync_inbox(m)
     before_count = before.get("count", 0)
     _log(f"inbox before: {before_count} msgs")
@@ -773,6 +800,7 @@ def main() -> int:
         test_reader_inline_existing_note(m)
         test_create_note_via_hotkey(m)
         test_edit_note_via_edit_button(m)
+        test_reader_auto_refresh_after_save(m)
         test_history_present(m)
         test_viewer_dropdown_rerender(m)
         test_viewer_bogus_messageid_banner(m)

@@ -52,12 +52,16 @@ browser.runtime.onMessage.addListener(async (req) => {
 				if (!isImap) throw new Error('Notes require an IMAP folder.');
 				const gmail = await browser.imapNote.isGmailFolder(req.messageId);
 				const apiWithOptions = wrapWithGmailFlag(browser.imapNote, gmail);
-				return await service.save(apiWithOptions, req.messageId, {
+				const result = await service.save(apiWithOptions, req.messageId, {
 					newText: req.newText,
 					baseVersion: req.baseVersion,
 					storeSource: settings.storeSource,
 					versionsCap: settings.versionsCap,
 				});
+				if (!result.conflict) {
+					broadcastNoteUpdated(req.messageId);
+				}
+				return result;
 			}
 			case 'getSettings': {
 				return await getSettings();
@@ -101,4 +105,13 @@ function wrapWithGmailFlag(api, gmail) {
 		writeNote: (id, noteData) => api.writeNote(id, noteData, { gmailDateHack: gmail }),
 		getHostname: () => api.getHostname(),
 	};
+}
+
+async function broadcastNoteUpdated(messageId) {
+	const tabs = await browser.tabs.query({});
+	for (const t of tabs) {
+		try {
+			await browser.tabs.sendMessage(t.id, { kind: 'noteUpdated', messageId });
+		} catch {}
+	}
 }

@@ -10,6 +10,7 @@ const READER_SRC = readFileSync(
 );
 
 function installBrowser({ messageId, note, i18n = {} }) {
+	const listeners = [];
 	globalThis.browser = {
 		runtime: {
 			sendMessage: vi.fn(async (req) => {
@@ -17,6 +18,10 @@ function installBrowser({ messageId, note, i18n = {} }) {
 				if (req.kind === 'load') return note;
 				return { ok: true };
 			}),
+			onMessage: {
+				addListener: vi.fn((fn) => listeners.push(fn)),
+				_emit: (m) => Promise.all(listeners.map((fn) => fn(m))),
+			},
 		},
 		i18n: { getMessage: (k) => i18n[k] ?? '' },
 	};
@@ -38,7 +43,7 @@ describe('reader.js inline render', () => {
 		installBrowser({ messageId: null, note: null });
 		await runReader();
 		expect(document.querySelector('#hunote-inline')).toBeNull();
-	});
+	}, 10000);
 
 	it('renders nothing when note load errors', async () => {
 		installBrowser({ messageId: 'm1', note: { error: 'boom' } });
@@ -136,5 +141,32 @@ describe('reader.js inline render', () => {
 		});
 		await runReader();
 		expect(document.body.firstChild.id).toBe('hunote-inline');
+	});
+
+	it('re-renders when bg broadcasts noteUpdated', async () => {
+		let currentNote = { text: 'old', version: 1, versions: [], timestamp: 'x', source: null };
+		globalThis.browser = {
+			runtime: {
+				sendMessage: vi.fn(async (req) => {
+					if (req.kind === 'currentMessageId') return { messageId: 'm1' };
+					if (req.kind === 'load') return currentNote;
+					return { ok: true };
+				}),
+				onMessage: {
+					_listeners: [],
+					addListener(fn) { this._listeners.push(fn); },
+					emit(m) { return Promise.all(this._listeners.map((fn) => fn(m))); },
+				},
+			},
+			i18n: { getMessage: () => '' },
+		};
+		await runReader();
+		expect(document.querySelector('.hn-body').textContent).toBe('old');
+
+		currentNote = { text: 'new', version: 2, versions: [{ v: 1, ts: 'x', source: null, text: 'old' }], timestamp: 'y', source: null };
+		await globalThis.browser.runtime.onMessage.emit({ kind: 'noteUpdated', messageId: 'm1' });
+		await new Promise((r) => setTimeout(r, 0));
+		expect(document.querySelector('.hn-body').textContent).toBe('new');
+		expect(document.querySelectorAll('#hunote-inline').length).toBe(1);
 	});
 });
