@@ -1,6 +1,7 @@
 {
   "extensionName": { "message": "HuNote" },
   "extensionDescription": { "message": "Заметки к письмам, сохраняемые на IMAP-сервере в заголовках." },
+  "editBtn": { "message": "Изменить" },
   "historyBtn": { "message": "История" },
   "historyTitle": { "message": "HuNote — история" },
   "historyCompareLabel": { "message": "Сравнить" },

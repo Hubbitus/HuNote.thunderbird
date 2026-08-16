@@ -17,6 +17,11 @@
 	align-items: center;
 	gap: 8px;
 }
+#hunote-inline .hn-btns {
+	display: inline-flex;
+	gap: 4px;
+}
+#hunote-inline .hn-edit-btn,
 #hunote-inline .hn-history-btn {
 	background: #b3d6b8;
 	color: #2b6b32;
@@ -27,6 +32,7 @@
 	font-family: inherit;
 	cursor: pointer;
 }
+#hunote-inline .hn-edit-btn:hover,
 #hunote-inline .hn-history-btn:hover {
 	background: #d4f4d4;
 }

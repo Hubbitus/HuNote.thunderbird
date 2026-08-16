@@ -72,6 +72,23 @@ browser.runtime.onMessage.addListener(async (req) => {
 				await browser.tabs.create({ url });
 				return { ok: true };
 			}
+			case 'openEditor': {
+				const msg = req.messageId
+					? { headerMessageId: req.messageId }
+					: await currentDisplayedMessage();
+				if (!msg) return { error: 'No message selected.' };
+				await browser.windows.create({
+					url: `ui/editor/editor.html?messageId=${encodeURIComponent(msg.headerMessageId)}`,
+					type: 'popup',
+					width: 500,
+					height: 400,
+				});
+				return { ok: true };
+			}
+			case 'currentMessageId': {
+				const msg = await currentDisplayedMessage();
+				return { messageId: msg?.headerMessageId ?? null };
+			}
 		}
 	} catch (e) {
 		return { error: String(e?.message ?? e) };
