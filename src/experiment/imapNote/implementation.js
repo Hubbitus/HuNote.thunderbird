@@ -21,8 +21,18 @@ function findMsgHdrByMessageId(messageId) {
 
 function searchFolderTreeForMessageId(folder, messageId) {
 	try {
-		const hdr = folder.msgDatabase?.getMsgHdrForMessageID(messageId);
-		if (hdr) return hdr;
+		const db = folder.msgDatabase;
+		if (db) {
+			const e = db.enumerateMessages();
+			let best = null;
+			while (e.hasMoreElements()) {
+				const h = e.getNext().QueryInterface(Ci.nsIMsgDBHdr);
+				if (h.messageId !== messageId) continue;
+				if (h.flags & Ci.nsMsgMessageFlags.IMAPDeleted) continue;
+				if (!best || h.messageKey > best.messageKey) best = h;
+			}
+			if (best) return best;
+		}
 	} catch (_) { /* folder db not open */ }
 	for (const sub of folder.subFolders) {
 		const found = searchFolderTreeForMessageId(sub, messageId);
