@@ -4,8 +4,6 @@ Cu.importGlobalProperties(["TextEncoder", "TextDecoder", "atob", "btoa"]);
 
 var { ExtensionCommon } = ChromeUtils.importESModule("resource://gre/modules/ExtensionCommon.sys.mjs");
 var { MailServices } = ChromeUtils.importESModule("resource:///modules/MailServices.sys.mjs");
-var { XPCOMUtils } = ChromeUtils.importESModule("resource://gre/modules/XPCOMUtils.sys.mjs");
-var { FileUtils } = ChromeUtils.importESModule("resource://gre/modules/FileUtils.sys.mjs");
 
 function findMsgHdrByMessageId(messageId) {
 	const all = findAllMsgHdrsByMessageId(messageId);
@@ -40,6 +38,22 @@ function collectFromFolderTree(folder, messageId, out) {
 		}
 	} catch (_) { /* folder db not open */ }
 	for (const sub of folder.subFolders) collectFromFolderTree(sub, messageId, out);
+}
+
+function clearNotePropertyOnAllCopies(messageId) {
+	const hdrs = findAllMsgHdrsByMessageId(messageId);
+	const folders = new Set();
+	for (const h of hdrs) {
+		if (h.getStringProperty("x-hu-note") !== "") {
+			h.setStringProperty("x-hu-note", "");
+			h.setStringProperty("x-hu-note-timestamp", "");
+			folders.add(h.folder);
+		}
+	}
+	for (const f of folders) {
+		try { f.msgDatabase.commit(Ci.nsMsgDBCommitType.kLargeCommit); } catch (_) {}
+	}
+	return hdrs.length;
 }
 
 function backfillPropertyOnAllCopies(messageId, timestamp) {
@@ -162,6 +176,29 @@ this.imapNote = class extends ExtensionCommon.ExtensionAPI {
 					}
 					return { newMessageId: newHdr?.messageId ?? messageId };
 				},
+				async deleteNote(messageId, options) {
+					const oldHdr = findMsgHdrByMessageId(messageId);
+					if (!oldHdr) throw new Error("Message not found: " + messageId);
+					const raw = await streamRawSource(oldHdr);
+					const gmailDateHack = !!(options && options.gmailDateHack);
+					const stripped = stripHunoteHeaders(raw, gmailDateHack);
+					const tmpFile = writeTempEml(stripped);
+					const folder = oldHdr.folder;
+					const flags = oldHdr.flags;
+					const keywords = oldHdr.getStringProperty("keywords");
+
+					const newKey = await appendMessage(folder, tmpFile, flags, keywords);
+
+					try {
+						folder.deleteMessages([oldHdr], null, true, true, null, false);
+					} catch (e) {
+						Cu.reportError(e);
+					}
+
+					clearNotePropertyOnAllCopies(messageId);
+					const newHdr = folder.msgDatabase.getMsgHdrForKey(newKey);
+					return { newMessageId: newHdr?.messageId ?? messageId };
+				},
 				async getHostname() {
 					const env = Cc["@mozilla.org/process/environment;1"].getService(Ci.nsIEnvironment);
 					return env.get("HOSTNAME") || env.get("COMPUTERNAME") || "unknown-host";
@@ -210,7 +247,7 @@ function bumpDateSecondImpl(src) {
 		});
 }
 
-function buildModifiedSourceImpl(rawSource, noteData, gmailDateHack) {
+function stripHunoteHeaders(rawSource, gmailDateHack) {
 	let src = rawSource.replace(/\r?\n/g, "\r\n");
 	src = src.replace(/^From - [^\r\n]*\r\n/, "");
 	src = src.replace(/^X-Mozilla-Status:[^\r\n]*\r\n/gm, "");
@@ -218,6 +255,11 @@ function buildModifiedSourceImpl(rawSource, noteData, gmailDateHack) {
 	src = src.replace(/^X-Mozilla-Keys:[^\r\n]*\r\n/gm, "");
 	src = src.replace(/^X-Hu-note[^:]*:[^\r\n]*(\r\n[ \t][^\r\n]*)*\r\n/gm, "");
 	if (gmailDateHack) src = bumpDateSecondImpl(src);
+	return src;
+}
+
+function buildModifiedSourceImpl(rawSource, noteData, gmailDateHack) {
+	let src = stripHunoteHeaders(rawSource, gmailDateHack);
 
 	const lines = [];
 	lines.push("X-Hu-note: " + foldHeaderValueImpl(encodeBase64Utf8(noteData.text)));

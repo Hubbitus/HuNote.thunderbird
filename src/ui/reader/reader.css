@@ -22,7 +22,8 @@
 	gap: 4px;
 }
 #hunote-inline .hn-edit-btn,
-#hunote-inline .hn-history-btn {
+#hunote-inline .hn-history-btn,
+#hunote-inline .hn-delete-btn {
 	background: #b3d6b8;
 	color: #2b6b32;
 	border: 1px solid #2b6b32;
@@ -35,6 +36,26 @@
 #hunote-inline .hn-edit-btn:hover,
 #hunote-inline .hn-history-btn:hover {
 	background: #d4f4d4;
+}
+#hunote-inline .hn-delete-btn {
+	background: #c00;
+	color: #fff;
+	border-color: #900;
+}
+#hunote-inline .hn-delete-btn:hover {
+	background: #e33;
+}
+#hunote-inline .hn-delete-btn.armed {
+	background: #ff0;
+	color: #900;
+	border-color: #900;
+	font-weight: bold;
+}
+#hunote-inline .hn-delete-btn:disabled {
+	background: #eee;
+	color: #999;
+	border-color: #ccc;
+	cursor: default;
 }
 #hunote-inline .hn-body {
 	margin: 0;

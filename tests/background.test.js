@@ -144,6 +144,46 @@ describe('background onMessage handlers', () => {
 		expect(refreshHunoteColumn).not.toHaveBeenCalled();
 	});
 
+	it('delete rejects non-IMAP folder', async () => {
+		installBrowser({ isImap: false });
+		loadBg();
+		const res = await onMessageListener({ kind: 'delete', messageId: 'm1' });
+		expect(res.error).toContain('IMAP');
+	});
+
+	it('delete calls imapNote.deleteNote + refreshHunoteColumn + broadcasts', async () => {
+		const { refreshHunoteColumn } = installBrowser({ isImap: true, isGmail: false });
+		const deleteNote = vi.fn(async () => ({ newMessageId: 'new@x' }));
+		globalThis.browser.imapNote.deleteNote = deleteNote;
+		globalThis.browser.tabs.query = vi.fn(async () => [{ id: 1 }, { id: 2 }]);
+		loadBg();
+
+		const res = await onMessageListener({ kind: 'delete', messageId: 'm1' });
+
+		expect(res).toEqual({ newMessageId: 'new@x' });
+		expect(deleteNote).toHaveBeenCalledWith('m1', { gmailDateHack: false });
+		expect(refreshHunoteColumn).toHaveBeenCalledOnce();
+		expect(globalThis.browser.tabs.sendMessage).toHaveBeenCalledTimes(2);
+	});
+
+	it('delete passes gmailDateHack=true for Gmail folder', async () => {
+		installBrowser({ isImap: true, isGmail: true });
+		const deleteNote = vi.fn(async () => ({ newMessageId: 'new@x' }));
+		globalThis.browser.imapNote.deleteNote = deleteNote;
+		loadBg();
+		await onMessageListener({ kind: 'delete', messageId: 'm1' });
+		expect(deleteNote).toHaveBeenCalledWith('m1', { gmailDateHack: true });
+	});
+
+	it('delete swallows refreshHunoteColumn errors', async () => {
+		const { refreshHunoteColumn } = installBrowser({ isImap: true });
+		refreshHunoteColumn.mockRejectedValueOnce(new Error('column not registered'));
+		globalThis.browser.imapNote.deleteNote = vi.fn(async () => ({ newMessageId: 'x' }));
+		loadBg();
+		const res = await onMessageListener({ kind: 'delete', messageId: 'm1' });
+		expect(res).toEqual({ newMessageId: 'x' });
+	});
+
 	it('save swallows refreshHunoteColumn errors (does not break save result)', async () => {
 		const { refreshHunoteColumn } = installBrowser({ isImap: true });
 		refreshHunoteColumn.mockRejectedValueOnce(new Error('column not registered'));

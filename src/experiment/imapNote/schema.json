@@ -40,6 +40,23 @@
         ]
       },
       {
+        "name": "deleteNote",
+        "type": "function",
+        "async": true,
+        "description": "Strip all X-Hu-note* headers from message via APPEND-then-delete, clear msgHdr props on all copies.",
+        "parameters": [
+          { "name": "messageId", "type": "string" },
+          {
+            "name": "options",
+            "type": "object",
+            "optional": true,
+            "properties": {
+              "gmailDateHack": { "type": "boolean", "optional": true }
+            }
+          }
+        ]
+      },
+      {
         "name": "getHostname",
         "type": "function",
         "async": true,
