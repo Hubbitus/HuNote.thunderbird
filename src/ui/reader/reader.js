@@ -28,7 +28,7 @@
 		container.id = 'hunote-inline';
 		container.innerHTML = `
 			<div class="hn-hdr">
-				<span class="hn-hdr-text"></span>
+				<span class="hn-hdr-text"><span class="hn-icon">📝</span> <span class="hn-hdr-label"></span></span>
 				<span class="hn-btns">
 					<button class="hn-edit-btn" type="button"></button>
 					${hasHistory ? '<button class="hn-history-btn" type="button"></button>' : ''}
@@ -37,7 +37,7 @@
 			</div>
 			<pre class="hn-body"></pre>
 		`;
-		container.querySelector('.hn-hdr-text').textContent =
+		container.querySelector('.hn-hdr-label').textContent =
 			`HuNote (v${note.version}, ${note.timestamp || '—'}${note.source ? ' from ' + note.source : ''})`;
 		container.querySelector('.hn-body').textContent = hasText ? note.text : '(empty)';
 

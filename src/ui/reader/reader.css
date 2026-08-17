@@ -17,6 +17,10 @@
 	align-items: center;
 	gap: 8px;
 }
+#hunote-inline .hn-icon {
+	font-size: 13px;
+	margin-right: 2px;
+}
 #hunote-inline .hn-btns {
 	display: inline-flex;
 	gap: 4px;
