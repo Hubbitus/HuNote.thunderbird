@@ -18,6 +18,7 @@ function installBrowser({ selectedMsg = null, isImap = true, isGmail = false } =
 	const windowsCreate = vi.fn(async () => ({ id: 1 }));
 	const tabsCreate = vi.fn(async () => ({ id: 2 }));
 	const notify = vi.fn();
+	const refreshHunoteColumn = vi.fn(async () => {});
 	globalThis.browser = {
 		storage: { local: { get: async (d) => ({ ...d }), set: vi.fn() } },
 		mailTabs: {
@@ -30,7 +31,7 @@ function installBrowser({ selectedMsg = null, isImap = true, isGmail = false } =
 			getURL: (p) => `moz-extension://x/${p}`,
 		},
 		windows: { create: windowsCreate },
-		tabs: { create: tabsCreate },
+		tabs: { create: tabsCreate, query: vi.fn(async () => []), sendMessage: vi.fn(async () => {}) },
 		notifications: { create: notify },
 		imapNote: {
 			readNote: vi.fn(async () => ({ text: 'n', version: 1, versions: [], timestamp: 't', source: null })),
@@ -39,8 +40,9 @@ function installBrowser({ selectedMsg = null, isImap = true, isGmail = false } =
 			isImapFolder: vi.fn(async () => isImap),
 			isGmailFolder: vi.fn(async () => isGmail),
 		},
+		gridColumn: { refreshHunoteColumn },
 	};
-	return { windowsCreate, tabsCreate, notify };
+	return { windowsCreate, tabsCreate, notify, refreshHunoteColumn };
 }
 
 function loadBg() {
@@ -121,6 +123,35 @@ describe('background onMessage handlers', () => {
 		loadBg();
 		const res = await onMessageListener({ kind: 'save', messageId: 'm1', newText: 't', baseVersion: 0 });
 		expect(res.error).toContain('IMAP');
+	});
+
+	it('save triggers refreshHunoteColumn on success', async () => {
+		const { refreshHunoteColumn } = installBrowser({ isImap: true });
+		// version 0 remote so baseVersion=0 wins (no conflict)
+		globalThis.browser.imapNote.readNote = vi.fn(async () => ({ text: null, version: 0, versions: [], timestamp: null, source: null }));
+		loadBg();
+		const res = await onMessageListener({ kind: 'save', messageId: 'm1', newText: 'hello', baseVersion: 0 });
+		expect(res.conflict).toBe(false);
+		expect(refreshHunoteColumn).toHaveBeenCalledOnce();
+	});
+
+	it('save does NOT trigger refreshHunoteColumn on conflict', async () => {
+		const { refreshHunoteColumn } = installBrowser({ isImap: true });
+		globalThis.browser.imapNote.readNote = vi.fn(async () => ({ text: 'newer', version: 5, versions: [], timestamp: 't', source: null }));
+		loadBg();
+		const res = await onMessageListener({ kind: 'save', messageId: 'm1', newText: 'hi', baseVersion: 0 });
+		expect(res.conflict).toBe(true);
+		expect(refreshHunoteColumn).not.toHaveBeenCalled();
+	});
+
+	it('save swallows refreshHunoteColumn errors (does not break save result)', async () => {
+		const { refreshHunoteColumn } = installBrowser({ isImap: true });
+		refreshHunoteColumn.mockRejectedValueOnce(new Error('column not registered'));
+		globalThis.browser.imapNote.readNote = vi.fn(async () => ({ text: null, version: 0, versions: [], timestamp: null, source: null }));
+		loadBg();
+		const res = await onMessageListener({ kind: 'save', messageId: 'm1', newText: 'x', baseVersion: 0 });
+		expect(res.conflict).toBe(false);
+		expect(res.newVersion).toBe(1);
 	});
 
 	it('handler catches thrown errors', async () => {
