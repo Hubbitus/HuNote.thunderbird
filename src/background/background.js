@@ -1,5 +1,8 @@
 import * as service from './note-service.js';
 
+browser.runtime.onStartup.addListener(() => {});
+browser.runtime.onInstalled.addListener(() => {});
+
 const DEFAULT_SETTINGS = {
 	maxNoteLength: 1000,
 	storeSource: true,
@@ -60,7 +63,17 @@ browser.runtime.onMessage.addListener(async (req) => {
 				});
 				if (!result.conflict) {
 					broadcastNoteUpdated(req.messageId);
+					try { await browser.gridColumn.refreshHunoteColumn(); } catch {}
 				}
+				return result;
+			}
+			case 'delete': {
+				const isImap = await browser.imapNote.isImapFolder(req.messageId);
+				if (!isImap) throw new Error('Notes require an IMAP folder.');
+				const gmail = await browser.imapNote.isGmailFolder(req.messageId);
+				const result = await browser.imapNote.deleteNote(req.messageId, { gmailDateHack: gmail });
+				broadcastNoteUpdated(req.messageId);
+				try { await browser.gridColumn.refreshHunoteColumn(); } catch {}
 				return result;
 			}
 			case 'getSettings': {

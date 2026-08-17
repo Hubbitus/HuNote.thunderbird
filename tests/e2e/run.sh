@@ -146,11 +146,19 @@ m.delete_session()
 PYEOF
 
 echo "== run E2E =="
-if uv run --with marionette-driver --python 3.11 python tests/e2e/reader_inline_test.py; then
-	RC=0
-else
-	RC=$?
-fi
+RC=0
+for TEST in tests/e2e/reader_inline_test.py tests/e2e/grid_column_test.py; do
+	echo "-- $TEST --"
+	set +e
+	uv run --with marionette-driver --python 3.11 python "$TEST"
+	TRC=$?
+	set -e
+	if [ $TRC -ne 0 ]; then
+		RC=$TRC
+		echo "!! $TEST FAILED (rc=$RC)"
+		break
+	fi
+done
 if [ "${KEEP:-0}" = "1" ] || { [ "${KEEP_ON_FAIL:-0}" = "1" ] && [ $RC -ne 0 ]; }; then
 	echo "== leaving env running (marionette port $MARIONETTE_PORT, greenmail IMAP $HUNOTE_GM_IMAP) =="
 	echo "   cleanup manually: podman rm -f $GM_NAME && pkill -f 'profile $PROFILE_DIR'"

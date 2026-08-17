@@ -25,6 +25,12 @@ mkdir -p "$PROFILE_DIR/extensions"
 # are picked up on next launch (no re-copy, no repack).
 echo -n "$SRC_ABS" > "$PROFILE_DIR/extensions/$ADDON_ID"
 
+# Warm-cache launch: TB re-reads manifest.json from src/ on every start
+# via proxy file. Do NOT wipe extensions.json here — cache wipe forces
+# rescan during bootstrap where experiments.json schema isn't ready yet,
+# which strips `events: ["startup"]` from experiment_apis.*.parent and
+# leaves gridColumn.onStartup unregistered. Use --fresh to wipe manually.
+
 # Allow unsigned MV3 experiment_apis addon in a dev profile.
 PREFS="$PROFILE_DIR/user.js"
 cat > "$PREFS" <<'EOF'

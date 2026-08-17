@@ -22,20 +22,22 @@
 
 		const editLabel = getI18n('editBtn') || 'Edit';
 		const historyLabel = getI18n('historyBtn') || 'History';
+		const deleteLabel = getI18n('deleteBtn') || 'Delete note';
 
 		const container = document.createElement('div');
 		container.id = 'hunote-inline';
 		container.innerHTML = `
 			<div class="hn-hdr">
-				<span class="hn-hdr-text"></span>
+				<span class="hn-hdr-text"><span class="hn-icon">📝</span> <span class="hn-hdr-label"></span></span>
 				<span class="hn-btns">
 					<button class="hn-edit-btn" type="button"></button>
 					${hasHistory ? '<button class="hn-history-btn" type="button"></button>' : ''}
+					${hasText ? '<button class="hn-delete-btn" type="button"></button>' : ''}
 				</span>
 			</div>
 			<pre class="hn-body"></pre>
 		`;
-		container.querySelector('.hn-hdr-text').textContent =
+		container.querySelector('.hn-hdr-label').textContent =
 			`HuNote (v${note.version}, ${note.timestamp || '—'}${note.source ? ' from ' + note.source : ''})`;
 		container.querySelector('.hn-body').textContent = hasText ? note.text : '(empty)';
 
@@ -50,6 +52,45 @@
 			histBtn.textContent = historyLabel;
 			histBtn.addEventListener('click', () => {
 				browser.runtime.sendMessage({ kind: 'openViewer', messageId });
+			});
+		}
+
+		if (hasText) {
+			const delBtn = container.querySelector('.hn-delete-btn');
+			delBtn.textContent = deleteLabel;
+			let armed = false;
+			let armTimer = null;
+			const disarm = () => {
+				armed = false;
+				delBtn.textContent = deleteLabel;
+				delBtn.classList.remove('armed');
+				if (armTimer) { clearTimeout(armTimer); armTimer = null; }
+			};
+			delBtn.addEventListener('click', async () => {
+				if (!armed) {
+					armed = true;
+					delBtn.textContent = (getI18n('deleteConfirmShort') || 'Click again to confirm');
+					delBtn.classList.add('armed');
+					armTimer = setTimeout(disarm, 4000);
+					return;
+				}
+				disarm();
+				delBtn.disabled = true;
+				delBtn.textContent = '⟳';
+				let res;
+				try {
+					res = await browser.runtime.sendMessage({ kind: 'delete', messageId });
+				} catch (e) {
+					res = { error: String(e?.message ?? e) };
+				}
+				if (res?.error) {
+					console.error('[HuNote] delete failed:', res.error);
+					delBtn.disabled = false;
+					delBtn.textContent = 'Err: ' + res.error.slice(0, 40);
+					delBtn.title = res.error;
+					return;
+				}
+				container.remove();
 			});
 		}
 

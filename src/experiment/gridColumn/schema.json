@@ -1,0 +1,28 @@
+[
+	{
+		"namespace": "gridColumn",
+		"functions": [
+			{
+				"name": "registerHunoteColumn",
+				"type": "function",
+				"async": true,
+				"description": "Register the HuNote custom column in the thread pane. Idempotent.",
+				"parameters": []
+			},
+			{
+				"name": "unregisterHunoteColumn",
+				"type": "function",
+				"async": true,
+				"description": "Unregister the HuNote custom column.",
+				"parameters": []
+			},
+			{
+				"name": "refreshHunoteColumn",
+				"type": "function",
+				"async": true,
+				"description": "Refresh cells of the HuNote custom column.",
+				"parameters": []
+			}
+		]
+	}
+]
