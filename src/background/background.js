@@ -52,12 +52,16 @@ browser.runtime.onMessage.addListener(async (req) => {
 				if (!isImap) throw new Error('Notes require an IMAP folder.');
 				const gmail = await browser.imapNote.isGmailFolder(req.messageId);
 				const apiWithOptions = wrapWithGmailFlag(browser.imapNote, gmail);
-				return await service.save(apiWithOptions, req.messageId, {
+				const result = await service.save(apiWithOptions, req.messageId, {
 					newText: req.newText,
 					baseVersion: req.baseVersion,
 					storeSource: settings.storeSource,
 					versionsCap: settings.versionsCap,
 				});
+				if (!result.conflict) {
+					broadcastNoteUpdated(req.messageId);
+				}
+				return result;
 			}
 			case 'getSettings': {
 				return await getSettings();
@@ -65,6 +69,29 @@ browser.runtime.onMessage.addListener(async (req) => {
 			case 'setSettings': {
 				await browser.storage.local.set(req.patch);
 				return await getSettings();
+			}
+			case 'openViewer': {
+				const url = browser.runtime.getURL('ui/viewer/viewer.html')
+					+ '?messageId=' + encodeURIComponent(req.messageId);
+				await browser.tabs.create({ url });
+				return { ok: true };
+			}
+			case 'openEditor': {
+				const msg = req.messageId
+					? { headerMessageId: req.messageId }
+					: await currentDisplayedMessage();
+				if (!msg) return { error: 'No message selected.' };
+				await browser.windows.create({
+					url: `ui/editor/editor.html?messageId=${encodeURIComponent(msg.headerMessageId)}`,
+					type: 'popup',
+					width: 500,
+					height: 400,
+				});
+				return { ok: true };
+			}
+			case 'currentMessageId': {
+				const msg = await currentDisplayedMessage();
+				return { messageId: msg?.headerMessageId ?? null };
 			}
 		}
 	} catch (e) {
@@ -78,4 +105,13 @@ function wrapWithGmailFlag(api, gmail) {
 		writeNote: (id, noteData) => api.writeNote(id, noteData, { gmailDateHack: gmail }),
 		getHostname: () => api.getHostname(),
 	};
+}
+
+async function broadcastNoteUpdated(messageId) {
+	const tabs = await browser.tabs.query({});
+	for (const t of tabs) {
+		try {
+			await browser.tabs.sendMessage(t.id, { kind: 'noteUpdated', messageId });
+		} catch {}
+	}
 }

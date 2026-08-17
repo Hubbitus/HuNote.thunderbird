@@ -3,10 +3,23 @@ const messageId = params.get('messageId');
 
 const textEl = document.getElementById('noteText');
 const saveBtn = document.getElementById('saveBtn');
+const historyBtn = document.getElementById('historyBtn');
 const cancelBtn = document.getElementById('cancelBtn');
 const statusEl = document.getElementById('status');
 const counterEl = document.getElementById('counter');
 const banner = document.getElementById('banner');
+
+applyI18n();
+
+function applyI18n() {
+	for (const el of document.querySelectorAll('[data-i18n]')) {
+		const key = el.dataset.i18n;
+		try {
+			const msg = browser.i18n.getMessage(key);
+			if (msg) el.textContent = msg;
+		} catch {}
+	}
+}
 
 let baseVersion = 0;
 let originalText = '';
@@ -42,6 +55,9 @@ async function init() {
 	textEl.disabled = false;
 	updateCounter();
 	setStatus(loaded.text ? '✓ saved' : 'new note');
+
+	const versionsCount = Array.isArray(loaded.versions) ? loaded.versions.length : 0;
+	historyBtn.disabled = !messageId || (versionsCount === 0 && !loaded.text);
 
 	if (!loaded.isImap) {
 		textEl.disabled = true;
@@ -83,6 +99,13 @@ saveBtn.addEventListener('click', async () => {
 	originalText = textEl.value;
 	setStatus('✓ saved ' + new Date().toLocaleTimeString());
 	showBanner('Saved.', true);
+	setTimeout(() => window.close(), 1500);
+});
+
+historyBtn.addEventListener('click', () => {
+	if (!messageId) return;
+	const url = browser.runtime.getURL('ui/viewer/viewer.html') + '?messageId=' + encodeURIComponent(messageId);
+	browser.tabs.create({ url });
 });
 
 cancelBtn.addEventListener('click', () => window.close());

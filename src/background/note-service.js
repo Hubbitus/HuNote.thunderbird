@@ -21,12 +21,24 @@ export async function save(api, messageId, opts) {
 		}
 	}
 	const entry = { v: nextVersion, ts: timestamp, source, text: newText };
+	const priorVersions = remote.versions ?? [];
+	// Archive current prior state into history before appending new entry, so
+	// v1 → v2 chains preserve the original text (not just the newest).
+	let archived = priorVersions;
+	if (remote.version > 0 && !priorVersions.some((e) => e.v === remote.version)) {
+		archived = mergeVersion(priorVersions, {
+			v: remote.version,
+			ts: remote.timestamp,
+			source: remote.source,
+			text: remote.text,
+		}, versionsCap);
+	}
 	const noteData = {
 		text: newText,
 		timestamp,
 		source,
 		version: nextVersion,
-		versions: mergeVersion(remote.versions ?? [], entry, versionsCap),
+		versions: mergeVersion(archived, entry, versionsCap),
 	};
 	const writeResult = await writeWithRetry(api, messageId, noteData, opts.retryDelaysMs ?? [1000, 3000, 10000]);
 	return { conflict: false, newVersion: nextVersion, newMessageId: writeResult.newMessageId };
