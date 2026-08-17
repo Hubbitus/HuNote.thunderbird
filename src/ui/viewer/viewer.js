@@ -10,6 +10,8 @@ const leftSel = document.getElementById('leftSelect');
 const rightSel = document.getElementById('rightSelect');
 const leftPre = document.querySelector('#hn-diff-left pre');
 const rightPre = document.querySelector('#hn-diff-right pre');
+const leftLabel = document.getElementById('hn-left-label');
+const rightLabel = document.getElementById('hn-right-label');
 const diffEl = document.getElementById('hn-diff');
 
 let allVersions = [];
@@ -106,7 +108,7 @@ function populateSelects() {
 		for (const entry of [...allVersions].reverse()) {
 			const opt = document.createElement('option');
 			opt.value = String(entry.v);
-			opt.textContent = String(entry.v);
+			opt.textContent = `${entry.v} — ${formatTs(entry.ts)}`;
 			sel.appendChild(opt);
 		}
 	}
@@ -130,6 +132,8 @@ function renderDiff() {
 	const rightV = parseInt(rightSel.value, 10);
 	const left = allVersions.find((e) => e.v === leftV);
 	const right = allVersions.find((e) => e.v === rightV);
+	leftLabel.textContent = left ? `v${left.v} — ${formatTs(left.ts)}` : '';
+	rightLabel.textContent = right ? `v${right.v} — ${formatTs(right.ts)}` : '';
 	if (!left || !right) {
 		leftPre.textContent = '';
 		rightPre.textContent = '';

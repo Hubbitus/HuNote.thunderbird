@@ -104,6 +104,20 @@ body {
 	overflow: auto;
 	border-right: 1px solid #ddd;
 	background: #fff;
+	display: flex;
+	flex-direction: column;
+}
+
+.hn-pane-label {
+	position: sticky;
+	top: 0;
+	background: #f0f8f1;
+	border-bottom: 1px solid #cfe4d2;
+	padding: 4px 12px;
+	font-size: 11px;
+	font-weight: 600;
+	color: #2b6b32;
+	z-index: 1;
 }
 
 .hn-diff-pane:last-child {

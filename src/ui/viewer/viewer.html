@@ -20,8 +20,14 @@
 		<main id="hn-main">
 			<aside id="hn-list" aria-label="version list"></aside>
 			<section id="hn-diff">
-				<div id="hn-diff-left" class="hn-diff-pane"><pre></pre></div>
-				<div id="hn-diff-right" class="hn-diff-pane"><pre></pre></div>
+				<div id="hn-diff-left" class="hn-diff-pane">
+					<div class="hn-pane-label" id="hn-left-label"></div>
+					<pre></pre>
+				</div>
+				<div id="hn-diff-right" class="hn-diff-pane">
+					<div class="hn-pane-label" id="hn-right-label"></div>
+					<pre></pre>
+				</div>
 			</section>
 		</main>
 		<div id="hn-empty" hidden data-i18n="historyEmpty">No history yet. Save the note again to start a version chain.</div>
