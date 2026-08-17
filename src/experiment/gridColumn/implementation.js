@@ -248,6 +248,14 @@ function attachToAbout3Pane(win) {
 	win.addEventListener("folderURIChanged", () => {
 		dump("HuNote: folderURIChanged, re-applying reorder\n");
 		reorderHunoteColumn(win);
+		// Re-run propagation so notes set in one folder catch up to same-messageId
+		// copies in the just-opened folder (Gmail label semantics).
+		// Delay so updateFolder finishes populating msgDatabase before enumeration.
+		win.setTimeout(() => {
+			propagateNotePropertyAcrossCopies();
+			try { ThreadPaneColumns.refreshCustomColumn(COLUMN_ID); } catch (_) {}
+			scanAll(win);
+		}, 1500);
 	});
 
 	const mo = new win.MutationObserver((mutations) => {
