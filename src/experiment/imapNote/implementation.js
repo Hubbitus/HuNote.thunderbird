@@ -8,37 +8,54 @@ var { XPCOMUtils } = ChromeUtils.importESModule("resource://gre/modules/XPCOMUti
 var { FileUtils } = ChromeUtils.importESModule("resource://gre/modules/FileUtils.sys.mjs");
 
 function findMsgHdrByMessageId(messageId) {
-	const accounts = MailServices.accounts.accounts;
-	for (const acct of accounts) {
-		for (const server of [acct.incomingServer]) {
-			if (!server || !server.rootFolder) continue;
-			const found = searchFolderTreeForMessageId(server.rootFolder, messageId);
-			if (found) return found;
-		}
-	}
-	return null;
+	const all = findAllMsgHdrsByMessageId(messageId);
+	if (!all.length) return null;
+	let best = all[0];
+	for (const h of all) if (h.messageKey > best.messageKey) best = h;
+	return best;
 }
 
-function searchFolderTreeForMessageId(folder, messageId) {
+function findAllMsgHdrsByMessageId(messageId) {
+	const out = [];
+	const accounts = MailServices.accounts.accounts;
+	for (const acct of accounts) {
+		const server = acct.incomingServer;
+		if (!server || !server.rootFolder) continue;
+		collectFromFolderTree(server.rootFolder, messageId, out);
+	}
+	return out;
+}
+
+function collectFromFolderTree(folder, messageId, out) {
 	try {
 		const db = folder.msgDatabase;
 		if (db) {
 			const e = db.enumerateMessages();
-			let best = null;
 			while (e.hasMoreElements()) {
 				const h = e.getNext().QueryInterface(Ci.nsIMsgDBHdr);
 				if (h.messageId !== messageId) continue;
 				if (h.flags & Ci.nsMsgMessageFlags.IMAPDeleted) continue;
-				if (!best || h.messageKey > best.messageKey) best = h;
+				out.push(h);
 			}
-			if (best) return best;
 		}
 	} catch (_) { /* folder db not open */ }
-	for (const sub of folder.subFolders) {
-		const found = searchFolderTreeForMessageId(sub, messageId);
-		if (found) return found;
+	for (const sub of folder.subFolders) collectFromFolderTree(sub, messageId, out);
+}
+
+function backfillPropertyOnAllCopies(messageId, timestamp) {
+	const hdrs = findAllMsgHdrsByMessageId(messageId);
+	const folders = new Set();
+	for (const h of hdrs) {
+		if (h.getStringProperty("x-hu-note") === "") {
+			h.setStringProperty("x-hu-note", "1");
+			if (timestamp) h.setStringProperty("x-hu-note-timestamp", timestamp);
+			folders.add(h.folder);
+		}
 	}
-	return null;
+	for (const f of folders) {
+		try { f.msgDatabase.commit(Ci.nsMsgDBCommitType.kLargeCommit); } catch (_) {}
+	}
+	return hdrs.length;
 }
 
 async function streamRawSource(msgHdr) {
@@ -113,7 +130,11 @@ this.imapNote = class extends ExtensionCommon.ExtensionAPI {
 					if (!hdr) return { text: null, timestamp: null, source: null, version: 0, versions: [] };
 					const raw = await streamRawSource(hdr);
 					const headers = parseHeadersOnly(raw);
-					return parseNote(headers);
+					const note = parseNote(headers);
+					if (note.text !== null) {
+						backfillPropertyOnAllCopies(messageId, note.timestamp);
+					}
+					return note;
 				},
 				async writeNote(messageId, noteData, options) {
 					const oldHdr = findMsgHdrByMessageId(messageId);
@@ -136,6 +157,9 @@ this.imapNote = class extends ExtensionCommon.ExtensionAPI {
 					}
 
 					const newHdr = folder.msgDatabase.getMsgHdrForKey(newKey);
+					if (newHdr) {
+						backfillPropertyOnAllCopies(newHdr.messageId, noteData.timestamp);
+					}
 					return { newMessageId: newHdr?.messageId ?? messageId };
 				},
 				async getHostname() {

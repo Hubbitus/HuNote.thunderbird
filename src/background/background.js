@@ -60,6 +60,7 @@ browser.runtime.onMessage.addListener(async (req) => {
 				});
 				if (!result.conflict) {
 					broadcastNoteUpdated(req.messageId);
+					try { await browser.gridColumn.refreshHunoteColumn(); } catch {}
 				}
 				return result;
 			}

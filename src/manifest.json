@@ -35,9 +35,17 @@
         "script": "experiment/imapNote/implementation.js",
         "paths": [["imapNote"]]
       }
+    },
+    "gridColumn": {
+      "schema": "experiment/gridColumn/schema.json",
+      "parent": {
+        "scopes": ["addon_parent"],
+        "script": "experiment/gridColumn/implementation.js",
+        "paths": [["gridColumn"]],
+        "events": ["startup"]
+      }
     }
   },
-  "_comment_messagesModify": "Required so message_display_scripts (reader.js) inject into message frames. TB overrides matchesWindowGlobal in ext-mail.js:76-82: for MESSAGE_PROTOCOLS scheme (imap/mailbox/news/nntp/mid) content scripts run only if extension has 'messagesModify' OR ('messagesRead' + 'scripting'). MatchPattern doesn't accept imap:// scheme so host_permissions can't grant this. Without it: ExtensionError 'Missing host permission for the tab' at ExtensionUtils.sys.mjs:46.",
   "permissions": ["messagesRead", "messagesUpdate", "messagesModify", "storage", "notifications", "accountsRead"],
   "icons": { "48": "icons/hunote-48.png", "96": "icons/hunote-96.png" },
   "default_locale": "en"
