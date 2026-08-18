@@ -27,63 +27,6 @@ function ensureCustomDBHeaders() {
 
 const NOTE_GLYPH = "\u{1F4DD}"; // 📝
 
-// Scan every msgDB in every account; for each messageId that has
-// x-hu-note="1" on ANY copy, propagate that property + timestamp to
-// every other copy (Gmail label-copies live in separate folders with
-// distinct messageKey but shared messageId). Ensures INBOX + All Mail
-// both show the column glyph without needing reader-open per copy.
-function propagateNotePropertyAcrossCopies() {
-	try {
-		const seen = new Map(); // messageId -> { ts }
-		const allHdrs = new Map(); // messageId -> [hdr, hdr, ...]
-		const walkFolders = [];
-		function collect(folder) {
-			try {
-				if (folder.getFlag(Ci.nsMsgFolderFlags.Virtual)) return;
-				const db = folder.msgDatabase;
-				if (db) {
-					walkFolders.push(folder);
-					const e = db.enumerateMessages();
-					while (e.hasMoreElements()) {
-						const h = e.getNext().QueryInterface(Ci.nsIMsgDBHdr);
-						if (h.flags & Ci.nsMsgMessageFlags.IMAPDeleted) continue;
-						const mid = h.messageId;
-						if (!mid) continue;
-						if (!allHdrs.has(mid)) allHdrs.set(mid, []);
-						allHdrs.get(mid).push(h);
-						const v = h.getStringProperty(HEADER_HAS_NOTE);
-						if (v && v.length) {
-							const ts = h.getStringProperty(HEADER_TIMESTAMP);
-							const prev = seen.get(mid);
-							if (!prev || (ts && (!prev.ts || ts > prev.ts))) seen.set(mid, { ts });
-						}
-					}
-				}
-			} catch (_) {}
-			for (const sub of folder.subFolders) collect(sub);
-		}
-		for (const acct of MailServices.accounts.accounts) {
-			if (acct.incomingServer?.rootFolder) collect(acct.incomingServer.rootFolder);
-		}
-		const commitFolders = new Set();
-		let propagated = 0;
-		for (const [mid, meta] of seen) {
-			const hdrs = allHdrs.get(mid) || [];
-			for (const h of hdrs) {
-				if (h.getStringProperty(HEADER_HAS_NOTE) === "") {
-					h.setStringProperty(HEADER_HAS_NOTE, "1");
-					if (meta.ts) h.setStringProperty(HEADER_TIMESTAMP, meta.ts);
-					commitFolders.add(h.folder);
-					propagated++;
-				}
-			}
-		}
-		for (const f of commitFolders) {
-			try { f.msgDatabase.commit(Ci.nsMsgDBCommitType.kLargeCommit); } catch (_) {}
-		}
-		dump("HuNote propagate: scanned " + walkFolders.length + " folders, propagated " + propagated + " copies\n");
-	} catch (e) { dump("HuNote propagate error: " + e + "\n"); }
-}
 const CARD_BADGE_ATTR = "data-hunote";
 const CARD_STYLE_ID = "hunote-card-style";
 // Cards view only: inject 🗒️ badge before subject text. Table view already
@@ -248,11 +191,7 @@ function attachToAbout3Pane(win) {
 	win.addEventListener("folderURIChanged", () => {
 		dump("HuNote: folderURIChanged, re-applying reorder\n");
 		reorderHunoteColumn(win);
-		// Re-run propagation so notes set in one folder catch up to same-messageId
-		// copies in the just-opened folder (Gmail label semantics).
-		// Delay so updateFolder finishes populating msgDatabase before enumeration.
 		win.setTimeout(() => {
-			propagateNotePropertyAcrossCopies();
 			try { ThreadPaneColumns.refreshCustomColumn(COLUMN_ID); } catch (_) {}
 			scanAll(win);
 		}, 1500);
@@ -356,8 +295,6 @@ this.gridColumn = class extends ExtensionCommon.ExtensionAPI {
 		iconUrl = this.extension.rootURI.resolve("icons/note.svg");
 		doRegister();
 		startCardsWatcher();
-		// Defer msgDB scan so account init settles first.
-		Services.tm.dispatchToMainThread(() => propagateNotePropertyAcrossCopies());
 	}
 
 	getAPI(context) {

@@ -21,6 +21,14 @@ async function currentDisplayedMessage() {
 	return selected?.messages?.[0] ?? null;
 }
 
+function msgLocator(msg) {
+	return {
+		messageId: msg?.headerMessageId ?? null,
+		accountId: msg?.folder?.accountId ?? null,
+		folderPath: msg?.folder?.path ?? null,
+	};
+}
+
 browser.commands.onCommand.addListener(async (name) => {
 	if (name !== 'open-note-editor') return;
 	const msg = await currentDisplayedMessage();
@@ -33,8 +41,12 @@ browser.commands.onCommand.addListener(async (name) => {
 		});
 		return;
 	}
+	const loc = msgLocator(msg);
+	const qs = `messageId=${encodeURIComponent(loc.messageId)}`
+		+ `&accountId=${encodeURIComponent(loc.accountId ?? '')}`
+		+ `&folderPath=${encodeURIComponent(loc.folderPath ?? '')}`;
 	await browser.windows.create({
-		url: `ui/editor/editor.html?messageId=${encodeURIComponent(msg.headerMessageId)}`,
+		url: `ui/editor/editor.html?${qs}`,
 		type: 'popup',
 		width: 500,
 		height: 400,
@@ -45,7 +57,7 @@ browser.runtime.onMessage.addListener(async (req) => {
 	try {
 		switch (req.kind) {
 			case 'load': {
-				const note = await service.load(browser.imapNote, req.messageId);
+				const note = await service.load(browser.imapNote, req.accountId, req.folderPath, req.messageId);
 				const isImap = await browser.imapNote.isImapFolder(req.messageId);
 				return { ...note, isImap };
 			}
@@ -55,7 +67,7 @@ browser.runtime.onMessage.addListener(async (req) => {
 				if (!isImap) throw new Error('Notes require an IMAP folder.');
 				const gmail = await browser.imapNote.isGmailFolder(req.messageId);
 				const apiWithOptions = wrapWithGmailFlag(browser.imapNote, gmail);
-				const result = await service.save(apiWithOptions, req.messageId, {
+				const result = await service.save(apiWithOptions, req.accountId, req.folderPath, req.messageId, {
 					newText: req.newText,
 					baseVersion: req.baseVersion,
 					storeSource: settings.storeSource,
@@ -84,18 +96,30 @@ browser.runtime.onMessage.addListener(async (req) => {
 				return await getSettings();
 			}
 			case 'openViewer': {
-				const url = browser.runtime.getURL('ui/viewer/viewer.html')
-					+ '?messageId=' + encodeURIComponent(req.messageId);
+				const qs = 'messageId=' + encodeURIComponent(req.messageId)
+					+ '&accountId=' + encodeURIComponent(req.accountId ?? '')
+					+ '&folderPath=' + encodeURIComponent(req.folderPath ?? '');
+				const url = browser.runtime.getURL('ui/viewer/viewer.html') + '?' + qs;
 				await browser.tabs.create({ url });
 				return { ok: true };
 			}
 			case 'openEditor': {
-				const msg = req.messageId
-					? { headerMessageId: req.messageId }
-					: await currentDisplayedMessage();
-				if (!msg) return { error: 'No message selected.' };
+				let accountId = req.accountId ?? null;
+				let folderPath = req.folderPath ?? null;
+				let messageId = req.messageId ?? null;
+				if (!messageId) {
+					const msg = await currentDisplayedMessage();
+					if (!msg) return { error: 'No message selected.' };
+					const loc = msgLocator(msg);
+					messageId = loc.messageId;
+					accountId = accountId ?? loc.accountId;
+					folderPath = folderPath ?? loc.folderPath;
+				}
+				const qs = `messageId=${encodeURIComponent(messageId)}`
+					+ `&accountId=${encodeURIComponent(accountId ?? '')}`
+					+ `&folderPath=${encodeURIComponent(folderPath ?? '')}`;
 				await browser.windows.create({
-					url: `ui/editor/editor.html?messageId=${encodeURIComponent(msg.headerMessageId)}`,
+					url: `ui/editor/editor.html?${qs}`,
 					type: 'popup',
 					width: 500,
 					height: 400,
@@ -104,7 +128,7 @@ browser.runtime.onMessage.addListener(async (req) => {
 			}
 			case 'currentMessageId': {
 				const msg = await currentDisplayedMessage();
-				return { messageId: msg?.headerMessageId ?? null };
+				return msgLocator(msg);
 			}
 		}
 	} catch (e) {
@@ -114,7 +138,7 @@ browser.runtime.onMessage.addListener(async (req) => {
 
 function wrapWithGmailFlag(api, gmail) {
 	return {
-		readNote: (id) => api.readNote(id),
+		readNote: (accountId, folderPath, id) => api.readNote(accountId, folderPath, id),
 		writeNote: (id, noteData) => api.writeNote(id, noteData, { gmailDateHack: gmail }),
 		getHostname: () => api.getHostname(),
 	};

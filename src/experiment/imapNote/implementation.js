@@ -13,6 +13,91 @@ function findMsgHdrByMessageId(messageId) {
 	return best;
 }
 
+// Locate the hdr for a given messageId inside ONE specific folder.
+//
+// Reader/grid must be folder-consistent: if the message copy in this folder
+// carries no X-Hu-note in its MIME, we render no note here. No cross-folder
+// fallback (previously done by pickReadTargetHdr) — that hid Gmail label-view
+// inconsistencies behind a hack and made the grid icon lie relative to the
+// reader body.
+function findHdrInFolder(accountId, folderPath, messageId) {
+	const folder = resolveFolder(accountId, folderPath);
+	if (!folder) return null;
+	try {
+		const svc = Cc["@mozilla.org/msgDatabase/msgDBService;1"].getService(Ci.nsIMsgDBService);
+		let db = null;
+		try { db = svc.openFolderDB(folder, false); } catch (_) { db = null; }
+		if (!db) {
+			try { db = folder.msgDatabase; } catch (_) { db = null; }
+		}
+		if (!db) return null;
+		const e = db.enumerateMessages();
+		while (e.hasMoreElements()) {
+			const h = e.getNext().QueryInterface(Ci.nsIMsgDBHdr);
+			if (h.messageId !== messageId) continue;
+			if (h.flags & Ci.nsMsgMessageFlags.IMAPDeleted) continue;
+			return h;
+		}
+	} catch (_) { /* db not open */ }
+	return null;
+}
+
+function resolveFolder(accountId, folderPath) {
+	if (!accountId || !folderPath) return null;
+	const acct = MailServices.accounts.getAccount(accountId);
+	if (!acct || !acct.incomingServer || !acct.incomingServer.rootFolder) return null;
+	// folderPath is TB WebExtension path form ("/INBOX", "/[Gmail]/All Mail").
+	// Walk from rootFolder matching each segment against subFolder.name.
+	const segs = folderPath.split("/").filter(s => s.length > 0);
+	let cur = acct.incomingServer.rootFolder;
+	for (const seg of segs) {
+		let next = null;
+		for (const sub of cur.subFolders) {
+			if (sub.name === seg) { next = sub; break; }
+		}
+		if (!next) return null;
+		cur = next;
+	}
+	return cur;
+}
+
+// Gmail virtual (label) folders: [Gmail]/All Mail, [Gmail]/Trash, [Gmail]/Spam,
+// [Gmail]/Sent, [Gmail]/Starred, [Gmail]/Drafts. Localized display names differ,
+// but IMAP path segment is always literal "[Gmail]" (or "[Google Mail]" for legacy
+// Google Mail accounts).
+//
+// Why detect them: see pickWriteTargetHdr() below — APPEND to a virtual folder
+// does NOT propagate back to the real INBOX (Gmail treats it as "message with
+// no label"), so we must never target them for writes.
+function isGmailVirtualFolder(folder) {
+	return /\/\[(Gmail|Google Mail)\]\//i.test(folder.URI);
+}
+
+// Direction of Gmail label sync — verified live 2026-08-18 with 2 experiments:
+//
+//   Experiment 1 (prior session): APPEND into INBOX → Gmail server automatically
+//   propagates the new message to [Gmail]/All Mail (label INBOX is attached, and
+//   All Mail is a view of every message with any label). Works.
+//
+//   Experiment 2 (this session): APPEND into [Gmail]/All Mail directly →
+//   NEW copy stays only in All Mail. INBOX never sees it, even after
+//   folder.updateFolder() refresh. Reason: All Mail is a virtual "all labels"
+//   view. Writing to it produces a message with NO labels, so INBOX (which is
+//   just the "INBOX" label) does not include it.
+//
+// Consequence: for the write to reach every folder that already held the
+// message, we must APPEND into a REAL folder (INBOX or user folder), never
+// into a [Gmail]/* virtual folder. Then Gmail's label engine syncs it to
+// All Mail (and any other label view) on its own.
+//
+// pickWriteTargetHdr() picks the first non-virtual hdr; falls back to any
+// hdr if the message only lives in virtual folders (edge case — should not
+// happen for normal INBOX mail).
+function pickWriteTargetHdr(allHdrs) {
+	const real = allHdrs.filter(h => !isGmailVirtualFolder(h.folder));
+	return real[0] || allHdrs[0];
+}
+
 function findAllMsgHdrsByMessageId(messageId) {
 	const out = [];
 	const accounts = MailServices.accounts.accounts;
@@ -25,8 +110,18 @@ function findAllMsgHdrsByMessageId(messageId) {
 }
 
 function collectFromFolderTree(folder, messageId, out) {
+	// msgDatabase is lazy — accessing it forces open. Use getDatabaseWOReparse
+	// via nsIMsgDBService to avoid full reparse for large folders. Fallback to
+	// direct .msgDatabase getter which also triggers open.
 	try {
-		const db = folder.msgDatabase;
+		let db = null;
+		try {
+			const svc = Cc["@mozilla.org/msgDatabase/msgDBService;1"].getService(Ci.nsIMsgDBService);
+			try { db = svc.openFolderDB(folder, false); } catch (_) { db = null; }
+		} catch (_) { /* service unavailable */ }
+		if (!db) {
+			try { db = folder.msgDatabase; } catch (_) { db = null; }
+		}
 		if (db) {
 			const e = db.enumerateMessages();
 			while (e.hasMoreElements()) {
@@ -38,38 +133,6 @@ function collectFromFolderTree(folder, messageId, out) {
 		}
 	} catch (_) { /* folder db not open */ }
 	for (const sub of folder.subFolders) collectFromFolderTree(sub, messageId, out);
-}
-
-function clearNotePropertyOnAllCopies(messageId) {
-	const hdrs = findAllMsgHdrsByMessageId(messageId);
-	const folders = new Set();
-	for (const h of hdrs) {
-		if (h.getStringProperty("x-hu-note") !== "") {
-			h.setStringProperty("x-hu-note", "");
-			h.setStringProperty("x-hu-note-timestamp", "");
-			folders.add(h.folder);
-		}
-	}
-	for (const f of folders) {
-		try { f.msgDatabase.commit(Ci.nsMsgDBCommitType.kLargeCommit); } catch (_) {}
-	}
-	return hdrs.length;
-}
-
-function backfillPropertyOnAllCopies(messageId, timestamp) {
-	const hdrs = findAllMsgHdrsByMessageId(messageId);
-	const folders = new Set();
-	for (const h of hdrs) {
-		if (h.getStringProperty("x-hu-note") === "") {
-			h.setStringProperty("x-hu-note", "1");
-			if (timestamp) h.setStringProperty("x-hu-note-timestamp", timestamp);
-			folders.add(h.folder);
-		}
-	}
-	for (const f of folders) {
-		try { f.msgDatabase.commit(Ci.nsMsgDBCommitType.kLargeCommit); } catch (_) {}
-	}
-	return hdrs.length;
 }
 
 async function streamRawSource(msgHdr) {
@@ -139,63 +202,53 @@ this.imapNote = class extends ExtensionCommon.ExtensionAPI {
 	getAPI(context) {
 		return {
 			imapNote: {
-				async readNote(messageId) {
-					const hdr = findMsgHdrByMessageId(messageId);
+				async readNote(accountId, folderPath, messageId) {
+					const hdr = findHdrInFolder(accountId, folderPath, messageId);
 					if (!hdr) return { text: null, timestamp: null, source: null, version: 0, versions: [] };
+					// Fast path: if msgDB carries no x-hu-note property for THIS
+					// hdr, the copy in this folder has no note in MIME. Return
+					// empty without streaming — reader/grid stay consistent.
+					let hasProp = false;
+					try { hasProp = hdr.getStringProperty("x-hu-note").length > 0; } catch {}
+					if (!hasProp) return { text: null, timestamp: null, source: null, version: 0, versions: [] };
 					const raw = await streamRawSource(hdr);
 					const headers = parseHeadersOnly(raw);
-					const note = parseNote(headers);
-					if (note.text !== null) {
-						backfillPropertyOnAllCopies(messageId, note.timestamp);
-					}
-					return note;
+					return parseNote(headers);
 				},
 				async writeNote(messageId, noteData, options) {
-					const oldHdr = findMsgHdrByMessageId(messageId);
-					if (!oldHdr) throw new Error("Message not found: " + messageId);
-					const raw = await streamRawSource(oldHdr);
+					const allHdrs = findAllMsgHdrsByMessageId(messageId);
+					if (!allHdrs.length) throw new Error("Message not found: " + messageId);
+					const targetHdr = pickWriteTargetHdr(allHdrs);
+					const raw = await streamRawSource(targetHdr);
 					const gmailDateHack = !!(options && options.gmailDateHack);
 					const modified = buildModifiedSourceImpl(raw, noteData, gmailDateHack);
 					const tmpFile = writeTempEml(modified);
-					const folder = oldHdr.folder;
-					const flags = oldHdr.flags;
-					const keywords = oldHdr.getStringProperty("keywords");
+					const folder = targetHdr.folder;
+					const flags = targetHdr.flags;
+					const keywords = targetHdr.getStringProperty("keywords");
 
 					const newKey = await appendMessage(folder, tmpFile, flags, keywords);
-
-					try {
-						const msgs = [oldHdr];
-						folder.deleteMessages(msgs, null, /*deleteStorage*/ true, /*isMove*/ true, null, /*allowUndo*/ false);
-					} catch (e) {
-						Cu.reportError(e);
-					}
+					deleteAllOldCopies(allHdrs);
 
 					const newHdr = folder.msgDatabase.getMsgHdrForKey(newKey);
-					if (newHdr) {
-						backfillPropertyOnAllCopies(newHdr.messageId, noteData.timestamp);
-					}
 					return { newMessageId: newHdr?.messageId ?? messageId };
 				},
 				async deleteNote(messageId, options) {
-					const oldHdr = findMsgHdrByMessageId(messageId);
-					if (!oldHdr) throw new Error("Message not found: " + messageId);
-					const raw = await streamRawSource(oldHdr);
+					const allHdrs = findAllMsgHdrsByMessageId(messageId);
+					if (!allHdrs.length) throw new Error("Message not found: " + messageId);
+					const targetHdr = pickWriteTargetHdr(allHdrs);
+					const raw = await streamRawSource(targetHdr);
 					const gmailDateHack = !!(options && options.gmailDateHack);
-					const stripped = stripHunoteHeaders(raw, gmailDateHack);
+					const tombstoneTs = new Date().toISOString();
+					const stripped = buildTombstoneSourceImpl(raw, tombstoneTs, gmailDateHack);
 					const tmpFile = writeTempEml(stripped);
-					const folder = oldHdr.folder;
-					const flags = oldHdr.flags;
-					const keywords = oldHdr.getStringProperty("keywords");
+					const folder = targetHdr.folder;
+					const flags = targetHdr.flags;
+					const keywords = targetHdr.getStringProperty("keywords");
 
 					const newKey = await appendMessage(folder, tmpFile, flags, keywords);
+					deleteAllOldCopies(allHdrs);
 
-					try {
-						folder.deleteMessages([oldHdr], null, true, true, null, false);
-					} catch (e) {
-						Cu.reportError(e);
-					}
-
-					clearNotePropertyOnAllCopies(messageId);
 					const newHdr = folder.msgDatabase.getMsgHdrForKey(newKey);
 					return { newMessageId: newHdr?.messageId ?? messageId };
 				},
@@ -258,6 +311,47 @@ function stripHunoteHeaders(rawSource, gmailDateHack) {
 	return src;
 }
 
+// Delete-note strategy: TOMBSTONE, not header removal.
+//
+// Why not fully strip X-Hu-note headers on delete?
+//   TB's mailnews.customDBHeaders auto-copy (which populates the msgDB property
+//   from MIME on parse) is ADD-ONLY — if a header disappears from MIME, the
+//   property is never cleared. Every folder copy that ever saw the note (Gmail
+//   label copies, other clients' folders, folders not currently subscribed)
+//   would keep a stale property → false-positive grid icon forever, with no
+//   local API to fix it (we can only touch open msgDBs on the current profile).
+//
+// Why not just clear the msgDB property locally via setStringProperty("")?
+//   That was the old clearNotePropertyOnAllCopies path. It only worked for
+//   folder dbs open in *this* profile. Any label copy in a folder we're not
+//   subscribed to, or any other client viewing the same account, kept the
+//   stale property. Fundamentally unfixable client-side.
+//
+// Tombstone approach: keep the X-Hu-note headers in MIME but with empty values
+// (plus timestamp = deletion time as a debug marker). Result:
+//   - Gmail preserves empty headers verbatim through APPEND (verified live).
+//   - Gmail auto-propagates the new message version to every label copy.
+//   - TB's auto-copy sees the empty header on parse and overrides the property
+//     with "" — including in folders we haven't opened yet, whenever they sync.
+//   - hasNote(hdr) treats "" as absent, so the icon disappears everywhere.
+//
+// Trade-off: MIME grows by ~120 bytes vs full strip. Acceptable — headers were
+// there anyway when the note existed.
+function buildTombstoneSourceImpl(rawSource, tombstoneTs, gmailDateHack) {
+	let src = stripHunoteHeaders(rawSource, gmailDateHack);
+	const lines = [
+		"X-Hu-note: ",
+		"X-Hu-note-timestamp: " + tombstoneTs,
+		"X-Hu-note-source: ",
+		"X-Hu-note-version: 0",
+		"X-Hu-note-versions: ",
+	];
+	const injected = lines.join("\r\n");
+	const bodySep = src.indexOf("\r\n\r\n");
+	if (bodySep === -1) return src + "\r\n" + injected + "\r\n";
+	return src.slice(0, bodySep) + "\r\n" + injected + src.slice(bodySep);
+}
+
 function buildModifiedSourceImpl(rawSource, noteData, gmailDateHack) {
 	let src = stripHunoteHeaders(rawSource, gmailDateHack);
 
@@ -274,17 +368,66 @@ function buildModifiedSourceImpl(rawSource, noteData, gmailDateHack) {
 	return src.slice(0, bodySep) + "\r\n" + injected + src.slice(bodySep);
 }
 
+// content is a byte-string: streamRawSource() uses nsIScriptableInputStream.read()
+// which returns one char per raw byte (0..255). The original message body may
+// already be UTF-8 or any other 8-bit encoding declared in Content-Type; we must
+// preserve those bytes verbatim. Do NOT run new TextEncoder().encode(content) --
+// that treats each char as a Unicode code point and re-encodes to UTF-8, which
+// double-encodes UTF-8 bodies into mojibake (e.g. Russian "Привет" -> "Привет").
+//
+// Injected X-Hu-note* headers are ASCII (base64) so they survive char-code truncation.
 function writeTempEml(content) {
 	const file = Services.dirsvc.get("TmpD", Ci.nsIFile);
 	file.append("HuNote-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8) + ".eml");
 	const stream = Cc["@mozilla.org/network/file-output-stream;1"].createInstance(Ci.nsIFileOutputStream);
 	stream.init(file, 0x02 | 0x08 | 0x20, 0o600, 0);
-	const bytes = new TextEncoder().encode(content);
+	const bytes = new Uint8Array(content.length);
+	for (let i = 0; i < content.length; i++) bytes[i] = content.charCodeAt(i) & 0xff;
 	const os = Cc["@mozilla.org/binaryoutputstream;1"].createInstance(Ci.nsIBinaryOutputStream);
 	os.setOutputStream(stream);
 	os.writeByteArray(bytes, bytes.length);
 	os.close();
 	return file;
+}
+
+// Delete stale copies from REAL folders only. Skip Gmail virtual folders
+// (like [Gmail]/All Mail) entirely — Gmail's label engine mirrors real-folder
+// state into virtual views on its own.
+//
+// Why NOT touch virtual folders: on Gmail, All Mail is not a real IMAP
+// mailbox but a view over labels. Two failure modes if we delete there:
+//   (a) deleteMessages(isMove=true) on All Mail = remove `\All Mail` label,
+//       which strips the message from that view. Gmail's label engine only
+//       propagates label additions from APPEND-target folders forward; it
+//       does NOT re-add \All Mail to compensate for our explicit removal.
+//       Result: message disappears from All Mail even though INBOX has it.
+//   (b) Race with the label sync after APPEND: we APPEND to INBOX, Gmail
+//       starts adding \All Mail to the new copy, but we simultaneously
+//       delete the old All Mail copy — engine sees "message lost its
+//       \All Mail" and stops propagation before the new label lands.
+//
+// Live-verified 2026-08-18 on "HuNote mail test 2": after write, INBOX had
+// new copy but All Mail was empty. Root cause = deleteAllOldCopies removing
+// virtual-folder copy.
+//
+// Pre-fix orphans in virtual folders: acceptable to leave. Gmail will not
+// duplicate messages under one label, so worst case is one stale entry
+// visible in All Mail that syncs correctly on next real-folder write.
+function deleteAllOldCopies(hdrs) {
+	const byFolder = new Map();
+	for (const h of hdrs) {
+		if (isGmailVirtualFolder(h.folder)) continue;
+		const arr = byFolder.get(h.folder) || [];
+		arr.push(h);
+		byFolder.set(h.folder, arr);
+	}
+	for (const [f, msgs] of byFolder) {
+		try {
+			f.deleteMessages(msgs, null, /*deleteStorage*/ true, /*isMove*/ true, null, /*allowUndo*/ false);
+		} catch (e) {
+			Cu.reportError(e);
+		}
+	}
 }
 
 function appendMessage(folder, tmpFile, flags, keywords) {

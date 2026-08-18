@@ -2,16 +2,16 @@
 	async function render() {
 		document.getElementById('hunote-inline')?.remove();
 
-		let messageId = null;
+		let loc = null;
 		for (let i = 0; i < 20; i++) {
-			const res = await browser.runtime.sendMessage({ kind: 'currentMessageId' });
-			messageId = res?.messageId;
-			if (messageId) break;
+			loc = await browser.runtime.sendMessage({ kind: 'currentMessageId' });
+			if (loc?.messageId) break;
 			await new Promise((r) => setTimeout(r, 250));
 		}
-		if (!messageId) return;
+		if (!loc?.messageId) return;
+		const { messageId, accountId, folderPath } = loc;
 
-		const note = await browser.runtime.sendMessage({ kind: 'load', messageId });
+		const note = await browser.runtime.sendMessage({ kind: 'load', messageId, accountId, folderPath });
 		if (!note || note.error) return;
 
 		const hasText = typeof note.text === 'string' && note.text.length > 0;
@@ -44,14 +44,14 @@
 		const editBtn = container.querySelector('.hn-edit-btn');
 		editBtn.textContent = editLabel;
 		editBtn.addEventListener('click', () => {
-			browser.runtime.sendMessage({ kind: 'openEditor', messageId });
+			browser.runtime.sendMessage({ kind: 'openEditor', messageId, accountId, folderPath });
 		});
 
 		if (hasHistory) {
 			const histBtn = container.querySelector('.hn-history-btn');
 			histBtn.textContent = historyLabel;
 			histBtn.addEventListener('click', () => {
-				browser.runtime.sendMessage({ kind: 'openViewer', messageId });
+				browser.runtime.sendMessage({ kind: 'openViewer', messageId, accountId, folderPath });
 			});
 		}
 
@@ -79,7 +79,7 @@
 				delBtn.textContent = '⟳';
 				let res;
 				try {
-					res = await browser.runtime.sendMessage({ kind: 'delete', messageId });
+					res = await browser.runtime.sendMessage({ kind: 'delete', messageId, accountId, folderPath });
 				} catch (e) {
 					res = { error: String(e?.message ?? e) };
 				}

@@ -9,12 +9,12 @@ const READER_SRC = readFileSync(
 	'utf8',
 );
 
-function installBrowser({ messageId, note, i18n = {} }) {
+function installBrowser({ messageId, note, i18n = {}, accountId = 'acct1', folderPath = '/INBOX' }) {
 	const listeners = [];
 	globalThis.browser = {
 		runtime: {
 			sendMessage: vi.fn(async (req) => {
-				if (req.kind === 'currentMessageId') return { messageId };
+				if (req.kind === 'currentMessageId') return { messageId, accountId, folderPath };
 				if (req.kind === 'load') return note;
 				return { ok: true };
 			}),
@@ -119,7 +119,7 @@ describe('reader.js inline render', () => {
 		await runReader();
 		globalThis.browser.runtime.sendMessage.mockClear();
 		document.querySelector('.hn-edit-btn').click();
-		expect(globalThis.browser.runtime.sendMessage).toHaveBeenCalledWith({ kind: 'openEditor', messageId: 'm1' });
+		expect(globalThis.browser.runtime.sendMessage).toHaveBeenCalledWith({ kind: 'openEditor', messageId: 'm1', accountId: 'acct1', folderPath: '/INBOX' });
 	});
 
 	it('History button dispatches openViewer', async () => {
@@ -130,7 +130,7 @@ describe('reader.js inline render', () => {
 		await runReader();
 		globalThis.browser.runtime.sendMessage.mockClear();
 		document.querySelector('.hn-history-btn').click();
-		expect(globalThis.browser.runtime.sendMessage).toHaveBeenCalledWith({ kind: 'openViewer', messageId: 'm1' });
+		expect(globalThis.browser.runtime.sendMessage).toHaveBeenCalledWith({ kind: 'openViewer', messageId: 'm1', accountId: 'acct1', folderPath: '/INBOX' });
 	});
 
 	it('inserts inline at top of body', async () => {
@@ -201,7 +201,7 @@ describe('reader.js inline render', () => {
 		btn.click(); // arm
 		btn.click(); // fire
 		await new Promise((r) => setTimeout(r, 0));
-		expect(globalThis.browser.runtime.sendMessage).toHaveBeenCalledWith({ kind: 'delete', messageId: 'm1' });
+		expect(globalThis.browser.runtime.sendMessage).toHaveBeenCalledWith({ kind: 'delete', messageId: 'm1', accountId: 'acct1', folderPath: '/INBOX' });
 		expect(document.querySelector('#hunote-inline')).toBeNull();
 	});
 

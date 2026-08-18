@@ -352,9 +352,10 @@ def test_grid_live_refresh_after_save(m: Marionette, mode: str) -> None:
 
 
 def test_grid_across_gmail_label_folders(m: Marionette, mode: str) -> None:
-    """Gmail label semantics: same messageId appears in INBOX and in [Gmail]/All Mail. When a
-    note is present on either copy, gridColumn.propagateNotePropertyAcrossCopies (fired on
-    folder switch) should backfill the property so the icon appears in both folders."""
+    """Gmail label semantics: same messageId appears in INBOX and in [Gmail]/All Mail. Since the
+    note lives as a MIME header in the message body itself (and TB auto-copies matching headers
+    listed in mailnews.customDBHeaders to msgDB properties on parse), the icon should appear in
+    both folders once each is synced."""
     print(f"\n[G4/{mode}] grid: propagates across Gmail label-copy folders")
     label_folder = "[Gmail]/All Mail"
     imap_create_subfolder(label_folder)
@@ -384,7 +385,7 @@ def test_grid_across_gmail_label_folders(m: Marionette, mode: str) -> None:
               f"[{mode}] INBOX row tagged data-hunote='1' after save (cell={inbox_cell})")
     _assert_table_cell(mode, inbox_cell, want_present=True, label=f"[G4/{mode}/inbox]")
 
-    # Switch to [Gmail]/All Mail — triggers propagateNotePropertyAcrossCopies on folder load
+    # Switch to [Gmail]/All Mail — TB parses MIME on folder load and auto-copies x-hu-note property
     sw = switch_to_folder(m, r"All Mail")
     _log(f"switched: {sw}")
     assert_ok(sw.get("ok"), f"[{mode}] switched to [Gmail]/All Mail (err={sw.get('err')})")

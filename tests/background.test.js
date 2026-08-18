@@ -27,6 +27,8 @@ function installBrowser({ selectedMsg = null, isImap = true, isGmail = false } =
 		},
 		commands: { onCommand: { addListener: (l) => { onCommandListener = l; } } },
 		runtime: {
+			onStartup: { addListener: vi.fn() },
+			onInstalled: { addListener: vi.fn() },
 			onMessage: { addListener: (l) => { onMessageListener = l; } },
 			getURL: (p) => `moz-extension://x/${p}`,
 		},
@@ -58,18 +60,18 @@ beforeEach(() => {
 });
 
 describe('background onMessage handlers', () => {
-	it('currentMessageId returns headerMessageId of selected msg', async () => {
-		installBrowser({ selectedMsg: { headerMessageId: 'msg-42@x' } });
+	it('currentMessageId returns headerMessageId + folder locator of selected msg', async () => {
+		installBrowser({ selectedMsg: { headerMessageId: 'msg-42@x', folder: { accountId: 'acct1', path: '/INBOX' } } });
 		loadBg();
 		const res = await onMessageListener({ kind: 'currentMessageId' });
-		expect(res).toEqual({ messageId: 'msg-42@x' });
+		expect(res).toEqual({ messageId: 'msg-42@x', accountId: 'acct1', folderPath: '/INBOX' });
 	});
 
-	it('currentMessageId returns null when no message selected', async () => {
+	it('currentMessageId returns nulls when no message selected', async () => {
 		installBrowser({ selectedMsg: null });
 		loadBg();
 		const res = await onMessageListener({ kind: 'currentMessageId' });
-		expect(res).toEqual({ messageId: null });
+		expect(res).toEqual({ messageId: null, accountId: null, folderPath: null });
 	});
 
 	it('openEditor with explicit messageId opens popup', async () => {
@@ -106,7 +108,7 @@ describe('background onMessage handlers', () => {
 		const res = await onMessageListener({ kind: 'openViewer', messageId: 'v@x' });
 		expect(res).toEqual({ ok: true });
 		expect(tabsCreate).toHaveBeenCalledWith({
-			url: 'moz-extension://x/ui/viewer/viewer.html?messageId=v%40x',
+			url: expect.stringContaining('messageId=v%40x'),
 		});
 	});
 

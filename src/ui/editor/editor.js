@@ -1,5 +1,7 @@
 const params = new URLSearchParams(location.search);
 const messageId = params.get('messageId');
+const accountId = params.get('accountId') || null;
+const folderPath = params.get('folderPath') || null;
 
 const textEl = document.getElementById('noteText');
 const saveBtn = document.getElementById('saveBtn');
@@ -47,7 +49,7 @@ async function init() {
 	maxLen = settings.maxNoteLength;
 	updateCounter();
 
-	const loaded = await browser.runtime.sendMessage({ kind: 'load', messageId });
+	const loaded = await browser.runtime.sendMessage({ kind: 'load', messageId, accountId, folderPath });
 	if (loaded?.error) { showBanner('Load failed: ' + loaded.error); return; }
 	baseVersion = loaded.version;
 	originalText = loaded.text ?? '';
@@ -77,7 +79,7 @@ saveBtn.addEventListener('click', async () => {
 	saveBtn.disabled = true;
 	setStatus('⟳ saving…');
 	const res = await browser.runtime.sendMessage({
-		kind: 'save', messageId, newText: textEl.value, baseVersion,
+		kind: 'save', messageId, accountId, folderPath, newText: textEl.value, baseVersion,
 	});
 	if (res?.error) {
 		showBanner('Save failed: ' + res.error);
@@ -104,7 +106,10 @@ saveBtn.addEventListener('click', async () => {
 
 historyBtn.addEventListener('click', () => {
 	if (!messageId) return;
-	const url = browser.runtime.getURL('ui/viewer/viewer.html') + '?messageId=' + encodeURIComponent(messageId);
+	const qs = 'messageId=' + encodeURIComponent(messageId)
+		+ '&accountId=' + encodeURIComponent(accountId ?? '')
+		+ '&folderPath=' + encodeURIComponent(folderPath ?? '');
+	const url = browser.runtime.getURL('ui/viewer/viewer.html') + '?' + qs;
 	browser.tabs.create({ url });
 });
 

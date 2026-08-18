@@ -6,8 +6,10 @@
         "name": "readNote",
         "type": "function",
         "async": true,
-        "description": "Read HuNote headers from a message by Message-ID.",
+        "description": "Read HuNote headers from the copy of the message in a specific folder. Folder-scoped: no cross-folder fallback.",
         "parameters": [
+          { "name": "accountId", "type": "string", "description": "TB account id of the folder containing the target message copy" },
+          { "name": "folderPath", "type": "string", "description": "WebExtension folder path, e.g. '/INBOX' or '/[Gmail]/All Mail'" },
           { "name": "messageId", "type": "string", "description": "RFC 5322 Message-ID (without angle brackets)" }
         ]
       },

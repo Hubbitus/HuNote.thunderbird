@@ -2,6 +2,8 @@ import { myersDiff, splitLines } from '../../background/diff.js';
 
 const params = new URLSearchParams(location.search);
 const messageId = params.get('messageId');
+const accountId = params.get('accountId') || null;
+const folderPath = params.get('folderPath') || null;
 
 const listEl = document.getElementById('hn-list');
 const emptyEl = document.getElementById('hn-empty');
@@ -26,7 +28,7 @@ async function init() {
 	}
 	let note;
 	try {
-		note = await browser.runtime.sendMessage({ kind: 'load', messageId });
+		note = await browser.runtime.sendMessage({ kind: 'load', messageId, accountId, folderPath });
 	} catch (e) {
 		showBanner(String(e?.message ?? e));
 		return;
