@@ -12,6 +12,7 @@ cd "$REPO_ROOT"
 : "${PROFILE_DIR:=.tmp/e2e-profile-${BACKEND_NAME}}"
 : "${GM_NAME:=hunote-e2e-${BACKEND_NAME}}"
 : "${GM_IMAGE:=docker.io/greenmail/standalone:2.1.0}"
+: "${DOVECOT_IMAGE:=docker.io/dovecot/dovecot:latest}"
 export MARIONETTE_PORT="${MARIONETTE_PORT:-2929}"
 export HUNOTE_GM_IMAP="${HUNOTE_GM_IMAP:-4243}"
 export HUNOTE_GM_SMTP="${HUNOTE_GM_SMTP:-4225}"
@@ -52,6 +53,54 @@ e2e_start_greenmail() {
 	done
 	# extra warmup — greenmail IMAP accepts TCP but rejects login for ~2s more
 	sleep 3
+}
+
+e2e_start_dovecot() {
+	echo "== dovecot (IMAP $HUNOTE_GM_IMAP) — Gmail-mimicry via imapsieve =="
+	podman rm -f "$GM_NAME" 2>/dev/null || true
+	local cfg_dir
+	cfg_dir="$(readlink -f "$REPO_ROOT/tests/e2e/dovecot")"
+	# Layout inside container: dovecot.conf + users.db at /etc/dovecot,
+	# sieve script at /etc/dovecot/sieve/gmail-dup.sieve.
+	# Sieve compiles .sieve → .svbin next to script. Use writable tmpfs at /var/sieve
+	# and podman-cp the .sieve into it post-start (bind-mount from repo would be RO).
+	podman run -d --rm --name "$GM_NAME" \
+		-p ${HUNOTE_GM_IMAP}:1143 \
+		--tmpfs /srv/mail:rw,mode=0777 \
+		--tmpfs /var/sieve:rw,mode=0777 \
+		-v "${cfg_dir}/dovecot.conf:/etc/dovecot/dovecot.conf:ro,Z" \
+		-v "${cfg_dir}/users.db:/etc/dovecot/users.db:ro,Z" \
+		"$DOVECOT_IMAGE" >/dev/null
+	podman cp "${cfg_dir}/gmail-dup.sieve" "$GM_NAME:/var/sieve/gmail-dup.sieve"
+	for i in $(seq 1 40); do
+		(echo > /dev/tcp/127.0.0.1/${HUNOTE_GM_IMAP}) 2>/dev/null && { echo "dovecot up"; break; }
+		sleep 0.5
+	done
+	sleep 2
+	# Bootstrap smoke: prove imapsieve fires — APPEND canary to INBOX, expect duplicate in [Gmail]/All Mail.
+	GM_IMAP="$HUNOTE_GM_IMAP" python3 - <<'PYSMOKE'
+import imaplib, os, sys, time
+c = imaplib.IMAP4('127.0.0.1', int(os.environ['GM_IMAP']))
+c.login('user@greenmail.local', 'any')
+mid = f"dovecot-smoke-{int(time.time())}@e2e.local"
+raw = (
+    f"From: s@e2e.local\r\nTo: user@greenmail.local\r\n"
+    f"Subject: dovecot-smoke\r\nMessage-ID: <{mid}>\r\n\r\ncanary\r\n"
+).encode()
+typ, resp = c.append('INBOX', None, None, raw)
+print("APPEND INBOX:", typ, resp)
+assert typ == 'OK', f"APPEND failed: {resp}"
+time.sleep(1)
+c.select('"[Gmail]/All Mail"')
+typ, data = c.search(None, 'HEADER', 'Message-ID', f'<{mid}>')
+print("SEARCH [Gmail]/All Mail:", typ, data)
+uids = data[0].split() if data and data[0] else []
+if not uids:
+    print("!! imapsieve did NOT duplicate to [Gmail]/All Mail — check dovecot logs")
+    sys.exit(1)
+print(f"imapsieve OK — duplicate landed in All Mail as UID(s) {uids}")
+c.logout()
+PYSMOKE
 }
 
 e2e_seed_fixtures() {

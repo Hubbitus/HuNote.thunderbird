@@ -8,17 +8,21 @@
 #   gmail      — future: real Gmail test account via XOAUTH2 (TASKS.md Task 3)
 set -euo pipefail
 HERE="$(dirname "$(readlink -f "$0")")"
-BACKEND_KIND="${BACKEND_KIND:-greenmail}"
+BACKEND_KIND="${BACKEND_KIND:-dovecot}"
 BACKEND_NAME="gmail-${BACKEND_KIND}"
 # shellcheck source=_setup.sh
 source "$HERE/_setup.sh"
 
 case "$BACKEND_KIND" in
 	greenmail)
-		# use default e2e_start_greenmail
+		# vanilla IMAP — no Gmail label engine. G4/G5/G6 will fail — regression floor only.
 		;;
-	dovecot|gmail)
-		echo "!! backend '$BACKEND_KIND' not implemented yet (TASKS.md Task 2/3)"
+	dovecot)
+		# Dovecot + imapsieve fileinto :copy — reproduces Gmail dup-copy semantics (ADR 0001).
+		e2e_start_backend() { e2e_start_dovecot; }
+		;;
+	gmail)
+		echo "!! backend 'gmail' not implemented yet (TASKS.md Task 3)"
 		exit 2
 		;;
 	*)
