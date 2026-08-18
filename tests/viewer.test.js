@@ -58,7 +58,7 @@ describe('viewer.js', () => {
 
 	it('shows banner on load error', async () => {
 		installBrowser({ note: { error: 'boom' } });
-		await runViewer('http://x/viewer.html?messageId=m1');
+		await runViewer(url('?messageId=m1'));
 		expect(document.getElementById('hn-banner').textContent).toBe('boom');
 	});
 
@@ -66,7 +66,7 @@ describe('viewer.js', () => {
 		installBrowser({
 			note: { version: 1, timestamp: V1.ts, source: V1.source, text: V1.text, versions: [] },
 		});
-		await runViewer('http://x/viewer.html?messageId=m1');
+		await runViewer(url('?messageId=m1'));
 		expect(document.getElementById('hn-empty').hidden).toBe(false);
 	});
 
@@ -74,7 +74,7 @@ describe('viewer.js', () => {
 		installBrowser({
 			note: { ...V3_CURRENT, versions: [V1, V2] },
 		});
-		await runViewer('http://x/viewer.html?messageId=m1');
+		await runViewer(url('?messageId=m1'));
 		const rows = document.querySelectorAll('.hn-version');
 		expect(rows.length).toBe(3);
 		expect(rows[0].dataset.v).toBe('3');
@@ -86,7 +86,7 @@ describe('viewer.js', () => {
 		installBrowser({
 			note: { ...V3_CURRENT, versions: [V1, V2] },
 		});
-		await runViewer('http://x/viewer.html?messageId=m1');
+		await runViewer(url('?messageId=m1'));
 		const opts = document.getElementById('leftSelect').querySelectorAll('option');
 		expect(opts.length).toBe(3);
 		expect(opts[0].textContent).toMatch(/^3 — /);
@@ -97,7 +97,7 @@ describe('viewer.js', () => {
 		installBrowser({
 			note: { ...V3_CURRENT, versions: [V1, V2] },
 		});
-		await runViewer('http://x/viewer.html?messageId=m1');
+		await runViewer(url('?messageId=m1'));
 		const left = document.getElementById('hn-left-label').textContent;
 		const right = document.getElementById('hn-right-label').textContent;
 		expect(left).toMatch(/^v2 — /);
@@ -108,7 +108,7 @@ describe('viewer.js', () => {
 		installBrowser({
 			note: { ...V3_CURRENT, versions: [V1, V2] },
 		});
-		await runViewer('http://x/viewer.html?messageId=m1');
+		await runViewer(url('?messageId=m1'));
 		const leftPre = document.querySelector('#hn-diff-left pre');
 		const rightPre = document.querySelector('#hn-diff-right pre');
 		expect(leftPre.querySelectorAll('.hn-line').length).toBeGreaterThan(0);
@@ -119,7 +119,7 @@ describe('viewer.js', () => {
 		installBrowser({
 			note: { ...V3_CURRENT, versions: [V1, V2] },
 		});
-		await runViewer('http://x/viewer.html?messageId=m1');
+		await runViewer(url('?messageId=m1'));
 		const leftSel = document.getElementById('leftSelect');
 		leftSel.value = '1';
 		leftSel.dispatchEvent(new Event('change'));
@@ -130,7 +130,7 @@ describe('viewer.js', () => {
 		installBrowser({
 			note: { ...V3_CURRENT, versions: [V1, V2] },
 		});
-		await runViewer('http://x/viewer.html?messageId=m1&left=1&right=2');
+		await runViewer(url('?messageId=m1&left=1&right=2'));
 		expect(document.getElementById('leftSelect').value).toBe('1');
 		expect(document.getElementById('rightSelect').value).toBe('2');
 		expect(document.getElementById('hn-left-label').textContent).toMatch(/^v1 — /);
@@ -141,7 +141,7 @@ describe('viewer.js', () => {
 		installBrowser({
 			note: { ...V3_CURRENT, versions: [V1, V2] },
 		});
-		await runViewer('http://x/viewer.html?messageId=m1');
+		await runViewer(url('?messageId=m1'));
 		const rowV1 = document.querySelector('.hn-version[data-v="1"]');
 		rowV1.click();
 		expect(document.getElementById('leftSelect').value).toBe('1');
@@ -153,7 +153,7 @@ describe('viewer.js', () => {
 			note: { ...V3_CURRENT, versions: [V1, V2] },
 			i18n: { historyNoDiff: 'No differences' },
 		});
-		await runViewer('http://x/viewer.html?messageId=m1');
+		await runViewer(url('?messageId=m1'));
 		const rightSel = document.getElementById('rightSelect');
 		rightSel.value = '2';
 		const leftSel = document.getElementById('leftSelect');
@@ -162,3 +162,11 @@ describe('viewer.js', () => {
 		expect(document.querySelector('#hn-diff-left .hn-nodiff')).not.toBeNull();
 	});
 });
+
+// viewer.js short-circuits when accountId/folderPath missing (empty state) —
+// production always builds the URL with both from reader/editor. Tests must
+// include them for load/render assertions to reach past the guard.
+function url(qs) {
+	const sep = qs.includes('?') ? '&' : '?';
+	return 'http://x/viewer.html' + qs + sep + 'accountId=acc1&folderPath=INBOX';
+}

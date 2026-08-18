@@ -20,6 +20,13 @@ function findMsgHdrByMessageId(messageId) {
 // fallback (previously done by pickReadTargetHdr) — that hid Gmail label-view
 // inconsistencies behind a hack and made the grid icon lie relative to the
 // reader body.
+//
+// Gmail label-view folders (e.g. [Gmail]/All Mail) can hold 2+ hdrs with the
+// same Message-ID: an older stale copy plus a fresh one produced when writeNote
+// APPENDs into a real folder and Gmail re-labels it back into All Mail. Pick
+// the copy with a non-empty x-hu-note (tie-break: newest x-hu-note-timestamp);
+// if none carry the note, pick the highest messageKey (latest enum entry).
+// Live-verified 2026-08-18 on real Gmail: 2 hdrs same Message-ID in All Mail.
 function findHdrInFolder(accountId, folderPath, messageId) {
 	const folder = resolveFolder(accountId, folderPath);
 	if (!folder) return null;
@@ -31,13 +38,31 @@ function findHdrInFolder(accountId, folderPath, messageId) {
 			try { db = folder.msgDatabase; } catch (_) { db = null; }
 		}
 		if (!db) return null;
+		const candidates = [];
 		const e = db.enumerateMessages();
 		while (e.hasMoreElements()) {
 			const h = e.getNext().QueryInterface(Ci.nsIMsgDBHdr);
 			if (h.messageId !== messageId) continue;
 			if (h.flags & Ci.nsMsgMessageFlags.IMAPDeleted) continue;
-			return h;
+			candidates.push(h);
 		}
+		if (candidates.length === 0) return null;
+		if (candidates.length === 1) return candidates[0];
+		const withNote = candidates.filter(h => {
+			try { return h.getStringProperty("x-hu-note").length > 0; } catch (_) { return false; }
+		});
+		if (withNote.length > 0) {
+			withNote.sort((a, b) => {
+				let ta = "", tb = "";
+				try { ta = a.getStringProperty("x-hu-note-timestamp"); } catch (_) {}
+				try { tb = b.getStringProperty("x-hu-note-timestamp"); } catch (_) {}
+				if (ta !== tb) return tb.localeCompare(ta);
+				return b.messageKey - a.messageKey;
+			});
+			return withNote[0];
+		}
+		candidates.sort((a, b) => b.messageKey - a.messageKey);
+		return candidates[0];
 	} catch (_) { /* db not open */ }
 	return null;
 }

@@ -1,10 +1,14 @@
-require ["copy", "fileinto", "imapsieve"];
+require ["copy", "fileinto", "imapsieve", "environment", "variables"];
 
-# Gmail-mimicry: on APPEND to INBOX, place a physically distinct copy in
-# [Gmail]/All Mail. This reproduces the Gmail behavior where the same
-# Message-ID exists in INBOX AND in [Gmail]/All Mail as separate UIDs.
+# Gmail-mimicry: on APPEND to ANY user folder, place a physically distinct copy in
+# [Gmail]/All Mail. This reproduces Gmail label semantics where a message in a label
+# folder also exists in [Gmail]/All Mail as a separate UID.
 #
-# :copy suppresses the default cancellation of the INBOX save — original
-# message stays in INBOX; a MIME-identical duplicate lands in All Mail.
+# Skip when the APPEND target IS [Gmail]/All Mail — would recurse.
+# imapsieve exposes target mailbox via environment "imap.mailbox".
+#
+# :copy suppresses the default cancellation of the target-mailbox save.
 
-fileinto :copy "[Gmail]/All Mail";
+if not environment :is "imap.mailbox" "[Gmail]/All Mail" {
+    fileinto :copy "[Gmail]/All Mail";
+}
