@@ -26,6 +26,11 @@ async function init() {
 		showBanner('No messageId in URL.');
 		return;
 	}
+	if (!accountId || !folderPath) {
+		emptyEl.hidden = false;
+		diffEl.hidden = true;
+		return;
+	}
 	let note;
 	try {
 		note = await browser.runtime.sendMessage({ kind: 'load', messageId, accountId, folderPath });

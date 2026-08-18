@@ -1,17 +1,16 @@
-"""E2E: HuNote grid column — icon visibility, live-refresh after save, cross-folder propagate.
+"""E2E: HuNote grid column — icon visibility, live-refresh after save.
 
 Prereqs (same as reader_inline_test.py):
 - run.sh has already seeded 2 fixtures (with-note.eml → subject "hello", plain-a.eml → "plain message A"),
 - launched TB with HuNote XPI, marionette on MARIONETTE_PORT.
 
-For test 4 (cross-folder propagate) this file additionally creates an IMAP subfolder
-"[Gmail]/All Mail" and APPENDs a copy of the same messageId to simulate Gmail label semantics.
+Gmail label-folder propagation lives in gmail_labels_test.py (run separately against Gmail-like
+backend via run-gmail.sh).
 
 Run standalone: uv run --with marionette-driver --python 3.11 python tests/e2e/grid_column_test.py
 """
 from __future__ import annotations
 
-import imaplib
 import json
 import os
 import sys
@@ -20,7 +19,6 @@ import time
 from marionette_driver.marionette import Marionette
 
 PORT = int(os.environ.get("MARIONETTE_PORT", "2828"))
-IMAP_PORT = int(os.environ.get("HUNOTE_GM_IMAP", "4143"))
 
 # Reuse helpers from reader_inline_test.py so we do not duplicate frame-scan / popup logic.
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -29,13 +27,11 @@ from reader_inline_test import (  # noqa: E402
     _close_editor_popup,
     _log,
     assert_ok,
-    check_inline,
     fill_popup_and_save,
     open_popup_via_hotkey,
     select_message,
     send_new_smtp_msg,
     sync_inbox,
-    wait_for_inline,
 )
 
 
@@ -149,44 +145,6 @@ def wait_for_grid_cell(m: Marionette, subject_regex: str, want_present: bool, ti
             return last
         time.sleep(0.5)
     return last or {"ok": False, "err": "timeout"}
-
-
-def _quote_mbox(name: str) -> str:
-    """IMAP mailbox names with special chars (brackets, spaces) must be quoted."""
-    if any(c in name for c in " []()"):
-        return '"' + name.replace('\\', '\\\\').replace('"', '\\"') + '"'
-    return name
-
-
-def imap_create_subfolder(name: str) -> None:
-    """CREATE + SUBSCRIBE subfolder in greenmail via IMAP.
-    TB with using_subscription=true (default) only lists SUBSCRIBEd folders."""
-    q = _quote_mbox(name)
-    c = imaplib.IMAP4("127.0.0.1", IMAP_PORT)
-    c.login("user@greenmail.local", "any")
-    typ, resp = c.create(q)
-    _log(f"IMAP CREATE {name!r}: {typ} {resp}")
-    typ, resp = c.subscribe(q)
-    _log(f"IMAP SUBSCRIBE {name!r}: {typ} {resp}")
-    c.logout()
-
-
-def imap_append_copy(folder: str, subject: str, message_id: str, body: str = "gmail label copy") -> None:
-    """APPEND a raw message with a specific Message-ID to a given folder."""
-    raw = (
-        f"From: sender@greenmail.local\r\n"
-        f"To: user@greenmail.local\r\n"
-        f"Subject: {subject}\r\n"
-        f"Message-ID: <{message_id}>\r\n"
-        f"Content-Type: text/plain; charset=utf-8\r\n"
-        f"\r\n"
-        f"{body}\r\n"
-    ).encode("utf-8")
-    c = imaplib.IMAP4("127.0.0.1", IMAP_PORT)
-    c.login("user@greenmail.local", "any")
-    typ, resp = c.append(_quote_mbox(folder), None, None, raw)
-    _log(f"IMAP APPEND to {folder!r}: {typ} {resp}")
-    c.logout()
 
 
 def switch_to_folder(m: Marionette, folder_regex: str) -> dict:
@@ -351,55 +309,6 @@ def test_grid_live_refresh_after_save(m: Marionette, mode: str) -> None:
     _assert_table_cell(mode, after, want_present=True, label=f"[G3/{mode}/after]")
 
 
-def test_grid_across_gmail_label_folders(m: Marionette, mode: str) -> None:
-    """Gmail label semantics: same messageId appears in INBOX and in [Gmail]/All Mail. Since the
-    note lives as a MIME header in the message body itself (and TB auto-copies matching headers
-    listed in mailnews.customDBHeaders to msgDB properties on parse), the icon should appear in
-    both folders once each is synced."""
-    print(f"\n[G4/{mode}] grid: propagates across Gmail label-copy folders")
-    label_folder = "[Gmail]/All Mail"
-    imap_create_subfolder(label_folder)
-
-    # APPEND same Message-ID into both INBOX and the label folder
-    ts = int(time.time())
-    subj = f"gmail-label-{mode}-{ts}"
-    mid = f"gmail-label-{mode}-{ts}@e2e.local"
-    imap_append_copy("INBOX", subj, mid)
-    imap_append_copy(label_folder, subj, mid)
-
-    # Sync INBOX + display it, select the new message, add a note via popup
-    switch_to_folder(m, r"^INBOX$")
-    sync_inbox(m, min_count=1)
-    sel = select_message(m, "^" + subj + "$")
-    assert_ok(sel["ok"], f"selected new msg in INBOX (msgId={sel.get('msgId')})")
-    opened = open_popup_via_hotkey(m)
-    assert_ok(opened.get("ok"), f"editor popup opened (err={opened.get('err')})")
-    body = "note visible in both folders"
-    res = fill_popup_and_save(m, body)
-    _close_editor_popup(m)
-    assert_ok(res.get("ok"), f"save succeeded (err={res.get('err')}, status={res.get('status')!r})")
-
-    # Confirm indicator on INBOX row (post-save, live-refresh)
-    inbox_cell = wait_for_grid_cell(m, "^" + subj + "$", want_present=True, timeout=15)
-    assert_ok(inbox_cell.get("ok") and inbox_cell.get("dataHunote") == "1",
-              f"[{mode}] INBOX row tagged data-hunote='1' after save (cell={inbox_cell})")
-    _assert_table_cell(mode, inbox_cell, want_present=True, label=f"[G4/{mode}/inbox]")
-
-    # Switch to [Gmail]/All Mail — TB parses MIME on folder load and auto-copies x-hu-note property
-    sw = switch_to_folder(m, r"All Mail")
-    _log(f"switched: {sw}")
-    assert_ok(sw.get("ok"), f"[{mode}] switched to [Gmail]/All Mail (err={sw.get('err')})")
-    # Folder switch resets view attr; re-apply desired mode
-    set_view_mode(m, mode)
-    time.sleep(2)
-    label_cell = wait_for_grid_cell(m, "^" + subj + "$", want_present=True, timeout=20)
-    _log(f"label cell: {json.dumps(label_cell, indent=2)[:400]}")
-    assert_ok(label_cell.get("ok"), f"[{mode}] row for same messageId located in label folder (err={label_cell.get('err')})")
-    assert_ok(label_cell.get("dataHunote") == "1",
-              f"[{mode}] note propagated to label-folder copy (dataHunote={label_cell.get('dataHunote')!r})")
-    _assert_table_cell(mode, label_cell, want_present=True, label=f"[G4/{mode}/label]")
-
-
 def main() -> int:
     m = Marionette(host="127.0.0.1", port=PORT)
     m.start_session()
@@ -413,7 +322,6 @@ def main() -> int:
             test_grid_shows_icon_for_msg_with_note(m, mode)
             test_grid_empty_for_plain_msg(m, mode)
             test_grid_live_refresh_after_save(m, mode)
-            test_grid_across_gmail_label_folders(m, mode)
         # Reset to cards after run
         set_view_mode(m, "cards")
         print("\n=== ALL GRID TESTS PASSED (cards + table) ===")
