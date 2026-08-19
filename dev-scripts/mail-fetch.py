@@ -65,6 +65,34 @@ def imap_utf7_decode(s):
         return s
 
 
+def imap_utf7_encode(s):
+    """unicode → IMAP modified UTF-7 (RFC 3501 §5.1.3). ASCII stays as-is.
+    Callers may pass either raw unicode ('[Gmail]/Вся почта') or already-encoded
+    ('[Gmail]/&BBIEQQRP- &BD8EPgRHBEIEMA-'); this function is idempotent for the
+    latter — chars '&' + printable ASCII are preserved."""
+    if all(ord(c) < 128 for c in s):
+        return s
+    import base64
+    out = []
+    buf = []
+    def flush():
+        if not buf:
+            return
+        raw = "".join(buf).encode("utf-16-be")
+        enc = base64.b64encode(raw).decode("ascii").rstrip("=").replace("/", ",")
+        out.append("&" + enc + "-")
+        buf.clear()
+    for ch in s:
+        code = ord(ch)
+        if 0x20 <= code <= 0x7E:
+            flush()
+            out.append("&-" if ch == "&" else ch)
+        else:
+            buf.append(ch)
+    flush()
+    return "".join(out)
+
+
 def folder_display(name):
     """Format folder for display: UTF-8 decoded, IMAP-encoded original in parens if differ."""
     decoded = imap_utf7_decode(name)
@@ -122,7 +150,7 @@ def list_folders(c):
 
 
 def search_folder(c, folder, mid):
-    typ, _ = c.select(f'"{folder}"', readonly=True)
+    typ, _ = c.select(f'"{imap_utf7_encode(folder)}"', readonly=True)
     if typ != "OK":
         return []
     variants = [mid.strip("<>"), "<" + mid.strip("<>") + ">"]
@@ -168,7 +196,7 @@ def fetch_raw(c, uid):
 
 
 def list_all_uids(c, folder):
-    typ, _ = c.select(f'"{folder}"', readonly=True)
+    typ, _ = c.select(f'"{imap_utf7_encode(folder)}"', readonly=True)
     if typ != "OK":
         return []
     typ, data = c.uid("SEARCH", None, "ALL")
