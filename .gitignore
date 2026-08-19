@@ -3,3 +3,6 @@ node_modules/
 coverage/
 dist/
 *.xpi
+__pycache__/
+*.pyc
+.env

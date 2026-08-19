@@ -3,9 +3,15 @@
   "extensionDescription": { "message": "Заметки к письмам, сохраняемые на IMAP-сервере в заголовках." },
   "editBtn": { "message": "Изменить" },
   "historyBtn": { "message": "История" },
+  "deleteBtn": { "message": "Удалить заметку" },
+  "deleteConfirm": { "message": "Удалить заметку и всю её историю? Действие необратимо." },
+  "deleteConfirmShort": { "message": "Ещё раз для подтверждения" },
+  "deleteSuccess": { "message": "Заметка удалена." },
   "historyTitle": { "message": "HuNote — история" },
   "historyCompareLabel": { "message": "Сравнить" },
   "historyEmpty": { "message": "История пуста. Сохраните заметку ещё раз, чтобы начать вести версии." },
   "historyCurrent": { "message": "текущая" },
-  "historyNoDiff": { "message": "Различий нет" }
+  "historyNoDiff": { "message": "Различий нет" },
+  "offlineReadOnly": { "message": "Thunderbird в оффлайне — заметки только для чтения." },
+  "offlineCannotSave": { "message": "Thunderbird в оффлайне. Подключитесь для сохранения заметок." }
 }

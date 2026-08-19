@@ -1,0 +1,4 @@
+# user:password:uid:gid:(gecos):home:(shell):extra_fields
+# password = "any" (bcrypt of "any" using {BLF-CRYPT})
+# Regenerate: doveadm pw -s BLF-CRYPT -p any
+user@greenmail.local:{PLAIN}any:1000:1000::/srv/mail/user:::

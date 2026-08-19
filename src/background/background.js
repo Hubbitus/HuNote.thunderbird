@@ -1,5 +1,31 @@
 import * as service from './note-service.js';
 
+// Experiment APIs must be present. If TB failed to load them (stale
+// extensions.json cache after TB upgrade, unprivileged addon, manifest parse
+// skip), fail loudly at startup instead of returning cryptic "undefined"
+// errors from every save/load later.
+function assertExperimentAPIs() {
+	const missing = [];
+	if (!globalThis.browser?.imapNote || typeof browser.imapNote.isImapFolder !== 'function') missing.push('imapNote');
+	if (!globalThis.browser?.gridColumn || typeof browser.gridColumn.refreshHunoteColumn !== 'function') missing.push('gridColumn');
+	if (missing.length) {
+		const msg = `HuNote: experiment_apis not loaded: [${missing.join(', ')}]. `
+			+ `Likely stale profile cache after TB upgrade, or addon not privileged. `
+			+ `Fix: wipe extensions.json + addonStartup.json.lz4 from profile and restart TB.`;
+		console.error(msg);
+		try {
+			browser.notifications.create({
+				type: 'basic', title: 'HuNote broken', message: msg, iconUrl: 'icons/hunote-48.png',
+			});
+		} catch {}
+		throw new Error(msg);
+	}
+}
+assertExperimentAPIs();
+
+browser.runtime.onStartup.addListener(() => {});
+browser.runtime.onInstalled.addListener(() => {});
+
 const DEFAULT_SETTINGS = {
 	maxNoteLength: 1000,
 	storeSource: true,
@@ -18,8 +44,25 @@ async function currentDisplayedMessage() {
 	return selected?.messages?.[0] ?? null;
 }
 
+function msgLocator(msg) {
+	return {
+		messageId: msg?.headerMessageId ?? null,
+		accountId: msg?.folder?.accountId ?? null,
+		folderPath: msg?.folder?.path ?? null,
+	};
+}
+
 browser.commands.onCommand.addListener(async (name) => {
 	if (name !== 'open-note-editor') return;
+	if (await browser.imapNote.isOffline()) {
+		browser.notifications.create({
+			type: 'basic',
+			title: 'HuNote',
+			message: browser.i18n.getMessage('offlineReadOnly'),
+			iconUrl: 'icons/hunote-48.png',
+		});
+		return;
+	}
 	const msg = await currentDisplayedMessage();
 	if (!msg) {
 		browser.notifications.create({
@@ -30,8 +73,12 @@ browser.commands.onCommand.addListener(async (name) => {
 		});
 		return;
 	}
+	const loc = msgLocator(msg);
+	const qs = `messageId=${encodeURIComponent(loc.messageId)}`
+		+ `&accountId=${encodeURIComponent(loc.accountId ?? '')}`
+		+ `&folderPath=${encodeURIComponent(loc.folderPath ?? '')}`;
 	await browser.windows.create({
-		url: `ui/editor/editor.html?messageId=${encodeURIComponent(msg.headerMessageId)}`,
+		url: `ui/editor/editor.html?${qs}`,
 		type: 'popup',
 		width: 500,
 		height: 400,
@@ -42,17 +89,20 @@ browser.runtime.onMessage.addListener(async (req) => {
 	try {
 		switch (req.kind) {
 			case 'load': {
-				const note = await service.load(browser.imapNote, req.messageId);
+				const note = await service.load(browser.imapNote, req.accountId, req.folderPath, req.messageId);
 				const isImap = await browser.imapNote.isImapFolder(req.messageId);
 				return { ...note, isImap };
 			}
 			case 'save': {
+				if (await browser.imapNote.isOffline()) {
+					throw new Error(browser.i18n.getMessage('offlineCannotSave'));
+				}
 				const settings = await getSettings();
 				const isImap = await browser.imapNote.isImapFolder(req.messageId);
 				if (!isImap) throw new Error('Notes require an IMAP folder.');
 				const gmail = await browser.imapNote.isGmailFolder(req.messageId);
 				const apiWithOptions = wrapWithGmailFlag(browser.imapNote, gmail);
-				const result = await service.save(apiWithOptions, req.messageId, {
+				const result = await service.save(apiWithOptions, req.accountId, req.folderPath, req.messageId, {
 					newText: req.newText,
 					baseVersion: req.baseVersion,
 					storeSource: settings.storeSource,
@@ -60,7 +110,20 @@ browser.runtime.onMessage.addListener(async (req) => {
 				});
 				if (!result.conflict) {
 					broadcastNoteUpdated(req.messageId);
+					try { await browser.gridColumn.refreshHunoteColumn(); } catch {}
 				}
+				return result;
+			}
+			case 'delete': {
+				if (await browser.imapNote.isOffline()) {
+					throw new Error(browser.i18n.getMessage('offlineCannotSave'));
+				}
+				const isImap = await browser.imapNote.isImapFolder(req.messageId);
+				if (!isImap) throw new Error('Notes require an IMAP folder.');
+				const gmail = await browser.imapNote.isGmailFolder(req.messageId);
+				const result = await browser.imapNote.deleteNote(req.messageId, { gmailDateHack: gmail });
+				broadcastNoteUpdated(req.messageId);
+				try { await browser.gridColumn.refreshHunoteColumn(); } catch {}
 				return result;
 			}
 			case 'getSettings': {
@@ -71,18 +134,39 @@ browser.runtime.onMessage.addListener(async (req) => {
 				return await getSettings();
 			}
 			case 'openViewer': {
-				const url = browser.runtime.getURL('ui/viewer/viewer.html')
-					+ '?messageId=' + encodeURIComponent(req.messageId);
+				const qs = 'messageId=' + encodeURIComponent(req.messageId)
+					+ '&accountId=' + encodeURIComponent(req.accountId ?? '')
+					+ '&folderPath=' + encodeURIComponent(req.folderPath ?? '');
+				const url = browser.runtime.getURL('ui/viewer/viewer.html') + '?' + qs;
 				await browser.tabs.create({ url });
 				return { ok: true };
 			}
 			case 'openEditor': {
-				const msg = req.messageId
-					? { headerMessageId: req.messageId }
-					: await currentDisplayedMessage();
-				if (!msg) return { error: 'No message selected.' };
+				if (await browser.imapNote.isOffline()) {
+					const msg = browser.i18n.getMessage('offlineReadOnly');
+					try {
+						browser.notifications.create({
+							type: 'basic', title: 'HuNote', message: msg, iconUrl: 'icons/hunote-48.png',
+						});
+					} catch {}
+					return { error: 'offline', message: msg };
+				}
+				let accountId = req.accountId ?? null;
+				let folderPath = req.folderPath ?? null;
+				let messageId = req.messageId ?? null;
+				if (!messageId) {
+					const msg = await currentDisplayedMessage();
+					if (!msg) return { error: 'No message selected.' };
+					const loc = msgLocator(msg);
+					messageId = loc.messageId;
+					accountId = accountId ?? loc.accountId;
+					folderPath = folderPath ?? loc.folderPath;
+				}
+				const qs = `messageId=${encodeURIComponent(messageId)}`
+					+ `&accountId=${encodeURIComponent(accountId ?? '')}`
+					+ `&folderPath=${encodeURIComponent(folderPath ?? '')}`;
 				await browser.windows.create({
-					url: `ui/editor/editor.html?messageId=${encodeURIComponent(msg.headerMessageId)}`,
+					url: `ui/editor/editor.html?${qs}`,
 					type: 'popup',
 					width: 500,
 					height: 400,
@@ -91,17 +175,24 @@ browser.runtime.onMessage.addListener(async (req) => {
 			}
 			case 'currentMessageId': {
 				const msg = await currentDisplayedMessage();
-				return { messageId: msg?.headerMessageId ?? null };
+				return msgLocator(msg);
+			}
+			case 'isOffline': {
+				return { offline: await browser.imapNote.isOffline() };
 			}
 		}
 	} catch (e) {
-		return { error: String(e?.message ?? e) };
+		console.error('HuNote req failed:', req?.kind, e);
+		return {
+			error: `HuNote[${req?.kind ?? '?'}]: ${e?.message ?? e}`,
+			stack: e?.stack ?? null,
+		};
 	}
 });
 
 function wrapWithGmailFlag(api, gmail) {
 	return {
-		readNote: (id) => api.readNote(id),
+		readNote: (accountId, folderPath, id) => api.readNote(accountId, folderPath, id),
 		writeNote: (id, noteData) => api.writeNote(id, noteData, { gmailDateHack: gmail }),
 		getHostname: () => api.getHostname(),
 	};

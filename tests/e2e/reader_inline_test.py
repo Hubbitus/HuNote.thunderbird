@@ -266,6 +266,8 @@ def fill_popup_and_save(m: Marionette, new_text: str) -> dict:
                             sendAsyncMessage("HuTest:reply", {ok:false, err:"textarea disabled/missing"});
                             return;
                         }
+                        const statusEl = doc.getElementById("status");
+                        const initialStatus = (statusEl && statusEl.textContent) || "";
                         ta.focus();
                         ta.value = newText;
                         ta.dispatchEvent(new content.Event("input", {bubbles:true}));
@@ -277,25 +279,45 @@ def fill_popup_and_save(m: Marionette, new_text: str) -> dict:
                             btn = doc.getElementById("saveBtn");
                         }
                         if (!btn || btn.disabled) {
-                            sendAsyncMessage("HuTest:reply", {ok:false, err:"saveBtn disabled after input", status: (doc.getElementById("status")||{}).textContent});
+                            sendAsyncMessage("HuTest:reply", {ok:false, err:"saveBtn disabled after input", status: (doc.getElementById("status")||{}).textContent, initialStatus});
                             return;
                         }
                         btn.click();
-                        for (let i = 0; i < 40; i++) {
-                            await new Promise(r => content.setTimeout(r, 500));
+                        // Post-click flow: setStatus('⟳ saving…') → await save → setStatus('✓ saved HH:MM:SS')
+                        //                    → setTimeout(window.close, 1500).
+                        // Success signals (any of):
+                        //   (a) status matches /^✓ saved \d/  (must observe timestamped variant)
+                        //   (b) we saw '⟳ saving…' AND then window/doc goes away (closed after save).
+                        // Reject bare '✓ saved' (stale from initial load if msg had existing note).
+                        const successRe = /^✓ saved \d/;
+                        let sawSaving = false;
+                        for (let i = 0; i < 240; i++) {
+                            await new Promise(r => content.setTimeout(r, 250));
+                            // Detect popup closed: doc torn down or has no body
+                            let alive = true;
+                            try { alive = !!(doc && doc.body); } catch (_) { alive = false; }
+                            if (!alive) {
+                                if (sawSaving) {
+                                    sendAsyncMessage("HuTest:reply", {ok:true, status:"(popup closed post-save)", initialStatus, sawSaving});
+                                } else {
+                                    sendAsyncMessage("HuTest:reply", {ok:false, err:"popup closed without saving marker", initialStatus, sawSaving});
+                                }
+                                return;
+                            }
                             const s = doc.getElementById("status");
                             const t = s && s.textContent;
-                            if (t && /saved|success/i.test(t)) {
-                                sendAsyncMessage("HuTest:reply", {ok:true, status:t});
+                            if (t && /saving/i.test(t)) sawSaving = true;
+                            if (t && successRe.test(t)) {
+                                sendAsyncMessage("HuTest:reply", {ok:true, status:t, initialStatus, sawSaving});
                                 return;
                             }
                             if (t && /(error|fail|conflict)/i.test(t)) {
-                                sendAsyncMessage("HuTest:reply", {ok:false, err:"save failed", status:t});
+                                sendAsyncMessage("HuTest:reply", {ok:false, err:"save failed", status:t, initialStatus, sawSaving});
                                 return;
                             }
                         }
                         const s = doc.getElementById("status");
-                        sendAsyncMessage("HuTest:reply", {ok:false, err:"timeout waiting for status", status: s && s.textContent});
+                        sendAsyncMessage("HuTest:reply", {ok:false, err:"timeout waiting for '✓ saved HH:MM:SS'", status: s && s.textContent, initialStatus, sawSaving});
                     })();
                 `);
                 let done = false;
@@ -303,11 +325,31 @@ def fill_popup_and_save(m: Marionette, new_text: str) -> dict:
                     if (done) return;
                     done = true;
                     mm.removeMessageListener("HuTest:reply", listener);
+                    if (winCloseTimer) clearInterval(winCloseTimer);
                     resolve(msg.data);
                 };
                 mm.addMessageListener("HuTest:reply", listener);
                 mm.loadFrameScript(script, false);
-                setTimeout(() => { if (!done) { done = true; resolve({ok:false, err:"frame script timeout"}); } }, 45000);
+                // Chrome-side popup-close watcher: editor.js closes popup ~1.5s after save success.
+                // Frame script is torn down with the browser, so its sendAsyncMessage never lands.
+                // Enumerate windows to detect popup gone; treat as save-success.
+                let winCloseTimer = setInterval(() => {
+                    if (done) { clearInterval(winCloseTimer); return; }
+                    let stillOpen = false;
+                    for (const w of Services.wm.getEnumerator(null)) {
+                        const b = w.document && w.document.querySelector("browser");
+                        if (b && b.currentURI && b.currentURI.spec.includes("ui/editor/editor.html")) {
+                            stillOpen = true; break;
+                        }
+                    }
+                    if (!stillOpen) {
+                        done = true;
+                        clearInterval(winCloseTimer);
+                        mm.removeMessageListener("HuTest:reply", listener);
+                        resolve({ok:true, status:"(popup closed post-save)", closedByChrome:true});
+                    }
+                }, 500);
+                setTimeout(() => { if (!done) { done = true; if (winCloseTimer) clearInterval(winCloseTimer); resolve({ok:false, err:"frame script timeout"}); } }, 90000);
             })();
         """, script_args=[new_text])
 

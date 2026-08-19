@@ -18,6 +18,7 @@ function installBrowser({ selectedMsg = null, isImap = true, isGmail = false } =
 	const windowsCreate = vi.fn(async () => ({ id: 1 }));
 	const tabsCreate = vi.fn(async () => ({ id: 2 }));
 	const notify = vi.fn();
+	const refreshHunoteColumn = vi.fn(async () => {});
 	globalThis.browser = {
 		storage: { local: { get: async (d) => ({ ...d }), set: vi.fn() } },
 		mailTabs: {
@@ -26,11 +27,13 @@ function installBrowser({ selectedMsg = null, isImap = true, isGmail = false } =
 		},
 		commands: { onCommand: { addListener: (l) => { onCommandListener = l; } } },
 		runtime: {
+			onStartup: { addListener: vi.fn() },
+			onInstalled: { addListener: vi.fn() },
 			onMessage: { addListener: (l) => { onMessageListener = l; } },
 			getURL: (p) => `moz-extension://x/${p}`,
 		},
 		windows: { create: windowsCreate },
-		tabs: { create: tabsCreate },
+		tabs: { create: tabsCreate, query: vi.fn(async () => []), sendMessage: vi.fn(async () => {}) },
 		notifications: { create: notify },
 		imapNote: {
 			readNote: vi.fn(async () => ({ text: 'n', version: 1, versions: [], timestamp: 't', source: null })),
@@ -38,9 +41,12 @@ function installBrowser({ selectedMsg = null, isImap = true, isGmail = false } =
 			getHostname: vi.fn(async () => 'h'),
 			isImapFolder: vi.fn(async () => isImap),
 			isGmailFolder: vi.fn(async () => isGmail),
+			isOffline: vi.fn(async () => false),
 		},
+		i18n: { getMessage: (k) => k },
+		gridColumn: { refreshHunoteColumn },
 	};
-	return { windowsCreate, tabsCreate, notify };
+	return { windowsCreate, tabsCreate, notify, refreshHunoteColumn };
 }
 
 function loadBg() {
@@ -56,18 +62,18 @@ beforeEach(() => {
 });
 
 describe('background onMessage handlers', () => {
-	it('currentMessageId returns headerMessageId of selected msg', async () => {
-		installBrowser({ selectedMsg: { headerMessageId: 'msg-42@x' } });
+	it('currentMessageId returns headerMessageId + folder locator of selected msg', async () => {
+		installBrowser({ selectedMsg: { headerMessageId: 'msg-42@x', folder: { accountId: 'acct1', path: '/INBOX' } } });
 		loadBg();
 		const res = await onMessageListener({ kind: 'currentMessageId' });
-		expect(res).toEqual({ messageId: 'msg-42@x' });
+		expect(res).toEqual({ messageId: 'msg-42@x', accountId: 'acct1', folderPath: '/INBOX' });
 	});
 
-	it('currentMessageId returns null when no message selected', async () => {
+	it('currentMessageId returns nulls when no message selected', async () => {
 		installBrowser({ selectedMsg: null });
 		loadBg();
 		const res = await onMessageListener({ kind: 'currentMessageId' });
-		expect(res).toEqual({ messageId: null });
+		expect(res).toEqual({ messageId: null, accountId: null, folderPath: null });
 	});
 
 	it('openEditor with explicit messageId opens popup', async () => {
@@ -104,7 +110,7 @@ describe('background onMessage handlers', () => {
 		const res = await onMessageListener({ kind: 'openViewer', messageId: 'v@x' });
 		expect(res).toEqual({ ok: true });
 		expect(tabsCreate).toHaveBeenCalledWith({
-			url: 'moz-extension://x/ui/viewer/viewer.html?messageId=v%40x',
+			url: expect.stringContaining('messageId=v%40x'),
 		});
 	});
 
@@ -123,12 +129,131 @@ describe('background onMessage handlers', () => {
 		expect(res.error).toContain('IMAP');
 	});
 
+	it('save triggers refreshHunoteColumn on success', async () => {
+		const { refreshHunoteColumn } = installBrowser({ isImap: true });
+		// version 0 remote so baseVersion=0 wins (no conflict)
+		globalThis.browser.imapNote.readNote = vi.fn(async () => ({ text: null, version: 0, versions: [], timestamp: null, source: null }));
+		loadBg();
+		const res = await onMessageListener({ kind: 'save', messageId: 'm1', newText: 'hello', baseVersion: 0 });
+		expect(res.conflict).toBe(false);
+		expect(refreshHunoteColumn).toHaveBeenCalledOnce();
+	});
+
+	it('save does NOT trigger refreshHunoteColumn on conflict', async () => {
+		const { refreshHunoteColumn } = installBrowser({ isImap: true });
+		globalThis.browser.imapNote.readNote = vi.fn(async () => ({ text: 'newer', version: 5, versions: [], timestamp: 't', source: null }));
+		loadBg();
+		const res = await onMessageListener({ kind: 'save', messageId: 'm1', newText: 'hi', baseVersion: 0 });
+		expect(res.conflict).toBe(true);
+		expect(refreshHunoteColumn).not.toHaveBeenCalled();
+	});
+
+	it('delete rejects non-IMAP folder', async () => {
+		installBrowser({ isImap: false });
+		loadBg();
+		const res = await onMessageListener({ kind: 'delete', messageId: 'm1' });
+		expect(res.error).toContain('IMAP');
+	});
+
+	it('delete calls imapNote.deleteNote + refreshHunoteColumn + broadcasts', async () => {
+		const { refreshHunoteColumn } = installBrowser({ isImap: true, isGmail: false });
+		const deleteNote = vi.fn(async () => ({ newMessageId: 'new@x' }));
+		globalThis.browser.imapNote.deleteNote = deleteNote;
+		globalThis.browser.tabs.query = vi.fn(async () => [{ id: 1 }, { id: 2 }]);
+		loadBg();
+
+		const res = await onMessageListener({ kind: 'delete', messageId: 'm1' });
+
+		expect(res).toEqual({ newMessageId: 'new@x' });
+		expect(deleteNote).toHaveBeenCalledWith('m1', { gmailDateHack: false });
+		expect(refreshHunoteColumn).toHaveBeenCalledOnce();
+		expect(globalThis.browser.tabs.sendMessage).toHaveBeenCalledTimes(2);
+	});
+
+	it('delete passes gmailDateHack=true for Gmail folder', async () => {
+		installBrowser({ isImap: true, isGmail: true });
+		const deleteNote = vi.fn(async () => ({ newMessageId: 'new@x' }));
+		globalThis.browser.imapNote.deleteNote = deleteNote;
+		loadBg();
+		await onMessageListener({ kind: 'delete', messageId: 'm1' });
+		expect(deleteNote).toHaveBeenCalledWith('m1', { gmailDateHack: true });
+	});
+
+	it('delete swallows refreshHunoteColumn errors', async () => {
+		const { refreshHunoteColumn } = installBrowser({ isImap: true });
+		refreshHunoteColumn.mockRejectedValueOnce(new Error('column not registered'));
+		globalThis.browser.imapNote.deleteNote = vi.fn(async () => ({ newMessageId: 'x' }));
+		loadBg();
+		const res = await onMessageListener({ kind: 'delete', messageId: 'm1' });
+		expect(res).toEqual({ newMessageId: 'x' });
+	});
+
+	it('save swallows refreshHunoteColumn errors (does not break save result)', async () => {
+		const { refreshHunoteColumn } = installBrowser({ isImap: true });
+		refreshHunoteColumn.mockRejectedValueOnce(new Error('column not registered'));
+		globalThis.browser.imapNote.readNote = vi.fn(async () => ({ text: null, version: 0, versions: [], timestamp: null, source: null }));
+		loadBg();
+		const res = await onMessageListener({ kind: 'save', messageId: 'm1', newText: 'x', baseVersion: 0 });
+		expect(res.conflict).toBe(false);
+		expect(res.newVersion).toBe(1);
+	});
+
 	it('handler catches thrown errors', async () => {
 		installBrowser();
 		globalThis.browser.imapNote.readNote = vi.fn(async () => { throw new Error('boom'); });
 		loadBg();
 		const res = await onMessageListener({ kind: 'load', messageId: 'm1' });
-		expect(res).toEqual({ error: 'boom' });
+		expect(res.error).toMatch(/boom/);
+	});
+});
+
+describe('background offline guards', () => {
+	it('isOffline handler returns {offline:true} when Services.io.offline', async () => {
+		installBrowser();
+		globalThis.browser.imapNote.isOffline = vi.fn(async () => true);
+		loadBg();
+		const res = await onMessageListener({ kind: 'isOffline' });
+		expect(res).toEqual({ offline: true });
+	});
+
+	it('save throws offline error when TB offline', async () => {
+		installBrowser();
+		globalThis.browser.imapNote.isOffline = vi.fn(async () => true);
+		loadBg();
+		const res = await onMessageListener({ kind: 'save', messageId: 'm1', newText: 'x', baseVersion: 0 });
+		expect(res.error).toMatch(/offlineCannotSave/);
+		expect(globalThis.browser.imapNote.writeNote).not.toHaveBeenCalled();
+	});
+
+	it('delete throws offline error when TB offline', async () => {
+		installBrowser();
+		globalThis.browser.imapNote.isOffline = vi.fn(async () => true);
+		globalThis.browser.imapNote.deleteNote = vi.fn(async () => ({ newMessageId: 'x' }));
+		loadBg();
+		const res = await onMessageListener({ kind: 'delete', messageId: 'm1' });
+		expect(res.error).toMatch(/offlineCannotSave/);
+		expect(globalThis.browser.imapNote.deleteNote).not.toHaveBeenCalled();
+	});
+
+	it('openEditor returns {error:offline} + fires notification when offline', async () => {
+		const { windowsCreate, notify } = installBrowser();
+		globalThis.browser.imapNote.isOffline = vi.fn(async () => true);
+		loadBg();
+		const res = await onMessageListener({ kind: 'openEditor', messageId: 'm1' });
+		expect(res.error).toBe('offline');
+		expect(windowsCreate).not.toHaveBeenCalled();
+		expect(notify).toHaveBeenCalledOnce();
+	});
+
+	it('commands.onCommand shows notification + skips window.create when offline', async () => {
+		const { windowsCreate, notify } = installBrowser({
+			selectedMsg: { headerMessageId: 'x', folder: { accountId: 'a', path: '/I' } },
+		});
+		globalThis.browser.imapNote.isOffline = vi.fn(async () => true);
+		loadBg();
+		await onCommandListener('open-note-editor');
+		expect(windowsCreate).not.toHaveBeenCalled();
+		expect(notify).toHaveBeenCalledOnce();
 	});
 });
 

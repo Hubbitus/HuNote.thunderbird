@@ -1,12 +1,12 @@
 import { mergeVersion } from './note-codec.js';
 
-export async function load(api, messageId) {
-	return api.readNote(messageId);
+export async function load(api, accountId, folderPath, messageId) {
+	return api.readNote(accountId, folderPath, messageId);
 }
 
-export async function save(api, messageId, opts) {
+export async function save(api, accountId, folderPath, messageId, opts) {
 	const { newText, baseVersion, storeSource, versionsCap } = opts;
-	const remote = await api.readNote(messageId);
+	const remote = await api.readNote(accountId, folderPath, messageId);
 	if (remote.version > baseVersion) {
 		return { conflict: true, remote };
 	}

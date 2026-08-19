@@ -6,8 +6,10 @@
         "name": "readNote",
         "type": "function",
         "async": true,
-        "description": "Read HuNote headers from a message by Message-ID.",
+        "description": "Read HuNote headers from the copy of the message in a specific folder. Folder-scoped: no cross-folder fallback.",
         "parameters": [
+          { "name": "accountId", "type": "string", "description": "TB account id of the folder containing the target message copy" },
+          { "name": "folderPath", "type": "string", "description": "WebExtension folder path, e.g. '/INBOX' or '/[Gmail]/All Mail'" },
           { "name": "messageId", "type": "string", "description": "RFC 5322 Message-ID (without angle brackets)" }
         ]
       },
@@ -29,6 +31,23 @@
               "versions": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
             }
           },
+          {
+            "name": "options",
+            "type": "object",
+            "optional": true,
+            "properties": {
+              "gmailDateHack": { "type": "boolean", "optional": true }
+            }
+          }
+        ]
+      },
+      {
+        "name": "deleteNote",
+        "type": "function",
+        "async": true,
+        "description": "Strip all X-Hu-note* headers from message via APPEND-then-delete, clear msgHdr props on all copies.",
+        "parameters": [
+          { "name": "messageId", "type": "string" },
           {
             "name": "options",
             "type": "object",
@@ -63,6 +82,13 @@
         "parameters": [
           { "name": "messageId", "type": "string" }
         ]
+      },
+      {
+        "name": "isOffline",
+        "type": "function",
+        "async": true,
+        "description": "Return true if Thunderbird is in offline mode (Services.io.offline).",
+        "parameters": []
       }
     ]
   }

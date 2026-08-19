@@ -9,12 +9,12 @@ const READER_SRC = readFileSync(
 	'utf8',
 );
 
-function installBrowser({ messageId, note, i18n = {} }) {
+function installBrowser({ messageId, note, i18n = {}, accountId = 'acct1', folderPath = '/INBOX' }) {
 	const listeners = [];
 	globalThis.browser = {
 		runtime: {
 			sendMessage: vi.fn(async (req) => {
-				if (req.kind === 'currentMessageId') return { messageId };
+				if (req.kind === 'currentMessageId') return { messageId, accountId, folderPath };
 				if (req.kind === 'load') return note;
 				return { ok: true };
 			}),
@@ -119,7 +119,7 @@ describe('reader.js inline render', () => {
 		await runReader();
 		globalThis.browser.runtime.sendMessage.mockClear();
 		document.querySelector('.hn-edit-btn').click();
-		expect(globalThis.browser.runtime.sendMessage).toHaveBeenCalledWith({ kind: 'openEditor', messageId: 'm1' });
+		expect(globalThis.browser.runtime.sendMessage).toHaveBeenCalledWith({ kind: 'openEditor', messageId: 'm1', accountId: 'acct1', folderPath: '/INBOX' });
 	});
 
 	it('History button dispatches openViewer', async () => {
@@ -130,7 +130,7 @@ describe('reader.js inline render', () => {
 		await runReader();
 		globalThis.browser.runtime.sendMessage.mockClear();
 		document.querySelector('.hn-history-btn').click();
-		expect(globalThis.browser.runtime.sendMessage).toHaveBeenCalledWith({ kind: 'openViewer', messageId: 'm1' });
+		expect(globalThis.browser.runtime.sendMessage).toHaveBeenCalledWith({ kind: 'openViewer', messageId: 'm1', accountId: 'acct1', folderPath: '/INBOX' });
 	});
 
 	it('inserts inline at top of body', async () => {
@@ -141,6 +141,154 @@ describe('reader.js inline render', () => {
 		});
 		await runReader();
 		expect(document.body.firstChild.id).toBe('hunote-inline');
+	});
+
+	it('renders Delete button when note text present', async () => {
+		installBrowser({
+			messageId: 'm1',
+			note: { text: 'hello', version: 1, versions: [], timestamp: 'x', source: null },
+		});
+		await runReader();
+		expect(document.querySelector('.hn-delete-btn')).not.toBeNull();
+	});
+
+	it('omits Delete button when text empty (history-only view)', async () => {
+		installBrowser({
+			messageId: 'm1',
+			note: { text: '', version: 2, versions: [{ text: 'o', version: 1 }], timestamp: 'x', source: null },
+		});
+		await runReader();
+		expect(document.querySelector('.hn-delete-btn')).toBeNull();
+	});
+
+	it('uses i18n label for Delete', async () => {
+		installBrowser({
+			messageId: 'm1',
+			note: { text: 't', version: 1, versions: [], timestamp: 'x', source: null },
+			i18n: { deleteBtn: 'Удалить заметку' },
+		});
+		await runReader();
+		expect(document.querySelector('.hn-delete-btn').textContent).toBe('Удалить заметку');
+	});
+
+	it('Delete first click arms button, does not dispatch', async () => {
+		installBrowser({
+			messageId: 'm1',
+			note: { text: 't', version: 1, versions: [], timestamp: 'x', source: null },
+		});
+		// prove `confirm` not required — remove from environment (matches TB message_display_scripts sandbox)
+		delete globalThis.confirm;
+		await runReader();
+		globalThis.browser.runtime.sendMessage.mockClear();
+		const btn = document.querySelector('.hn-delete-btn');
+		btn.click();
+		await new Promise((r) => setTimeout(r, 0));
+		expect(globalThis.browser.runtime.sendMessage).not.toHaveBeenCalled();
+		expect(btn.classList.contains('armed')).toBe(true);
+		expect(document.querySelector('#hunote-inline')).not.toBeNull();
+	});
+
+	it('Delete second click dispatches + removes inline on success', async () => {
+		installBrowser({
+			messageId: 'm1',
+			note: { text: 't', version: 1, versions: [], timestamp: 'x', source: null },
+		});
+		delete globalThis.confirm;
+		await runReader();
+		globalThis.browser.runtime.sendMessage.mockClear();
+		globalThis.browser.runtime.sendMessage.mockResolvedValueOnce({ newMessageId: 'new@x' });
+		const btn = document.querySelector('.hn-delete-btn');
+		btn.click(); // arm
+		btn.click(); // fire
+		await new Promise((r) => setTimeout(r, 0));
+		expect(globalThis.browser.runtime.sendMessage).toHaveBeenCalledWith({ kind: 'delete', messageId: 'm1', accountId: 'acct1', folderPath: '/INBOX' });
+		expect(document.querySelector('#hunote-inline')).toBeNull();
+	});
+
+	it('Delete auto-disarms after 4s (no dispatch)', async () => {
+		installBrowser({
+			messageId: 'm1',
+			note: { text: 't', version: 1, versions: [], timestamp: 'x', source: null },
+		});
+		delete globalThis.confirm;
+		await runReader();
+		vi.useFakeTimers();
+		globalThis.browser.runtime.sendMessage.mockClear();
+		const btn = document.querySelector('.hn-delete-btn');
+		btn.click(); // arm
+		expect(btn.classList.contains('armed')).toBe(true);
+		vi.advanceTimersByTime(4001);
+		expect(btn.classList.contains('armed')).toBe(false);
+		btn.click(); // arm again (not fire)
+		expect(globalThis.browser.runtime.sendMessage).not.toHaveBeenCalled();
+		vi.useRealTimers();
+	});
+
+	it('Delete error re-enables + shows error text + tooltip', async () => {
+		installBrowser({
+			messageId: 'm1',
+			note: { text: 't', version: 1, versions: [], timestamp: 'x', source: null },
+		});
+		delete globalThis.confirm;
+		await runReader();
+		globalThis.browser.runtime.sendMessage.mockClear();
+		globalThis.browser.runtime.sendMessage.mockResolvedValueOnce({ error: 'Message not found: m1' });
+		const btn = document.querySelector('.hn-delete-btn');
+		btn.click(); // arm
+		btn.click(); // fire
+		await new Promise((r) => setTimeout(r, 0));
+		expect(document.querySelector('#hunote-inline')).not.toBeNull();
+		expect(btn.disabled).toBe(false);
+		expect(btn.textContent).toContain('Message not found');
+		expect(btn.title).toBe('Message not found: m1');
+	});
+
+	it('Delete network throw shows error text', async () => {
+		installBrowser({
+			messageId: 'm1',
+			note: { text: 't', version: 1, versions: [], timestamp: 'x', source: null },
+		});
+		delete globalThis.confirm;
+		await runReader();
+		globalThis.browser.runtime.sendMessage.mockClear();
+		globalThis.browser.runtime.sendMessage.mockRejectedValueOnce(new Error('port closed'));
+		const btn = document.querySelector('.hn-delete-btn');
+		btn.click(); btn.click();
+		await new Promise((r) => setTimeout(r, 0));
+		expect(btn.textContent).toContain('port closed');
+	});
+
+	it('Edit button disables + shows ⛔ badge when bg returns {error:offline}', async () => {
+		installBrowser({
+			messageId: 'm1',
+			note: { text: 't', version: 1, versions: [], timestamp: 'x', source: null },
+			i18n: { editBtn: 'Edit', offlineReadOnly: 'TB offline' },
+		});
+		await runReader();
+		const btn = document.querySelector('.hn-edit-btn');
+		globalThis.browser.runtime.sendMessage.mockClear();
+		globalThis.browser.runtime.sendMessage.mockResolvedValueOnce({ error: 'offline', message: 'TB offline' });
+		btn.click();
+		await new Promise((r) => setTimeout(r, 0));
+		expect(btn.disabled).toBe(true);
+		expect(btn.textContent).toBe('⛔ Edit');
+		expect(btn.title).toBe('TB offline');
+	});
+
+	it('Edit button offline fallback title uses offlineReadOnly key when message absent', async () => {
+		installBrowser({
+			messageId: 'm1',
+			note: { text: 't', version: 1, versions: [], timestamp: 'x', source: null },
+			i18n: { offlineReadOnly: 'Оффлайн' },
+		});
+		await runReader();
+		const btn = document.querySelector('.hn-edit-btn');
+		globalThis.browser.runtime.sendMessage.mockClear();
+		globalThis.browser.runtime.sendMessage.mockResolvedValueOnce({ error: 'offline' });
+		btn.click();
+		await new Promise((r) => setTimeout(r, 0));
+		expect(btn.disabled).toBe(true);
+		expect(btn.title).toBe('Оффлайн');
 	});
 
 	it('re-renders when bg broadcasts noteUpdated', async () => {

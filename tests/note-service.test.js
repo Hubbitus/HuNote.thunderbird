@@ -11,10 +11,10 @@ function fakeApi({ readValues = [], writeImpl } = {}) {
 }
 
 describe('load', () => {
-	it('delegates to imapNote.readNote', async () => {
+	it('delegates to imapNote.readNote with folder-scoped args', async () => {
 		const api = fakeApi({ readValues: [{ text: 't', version: 2, versions: [], timestamp: 'x', source: 's' }] });
-		const r = await load(api, 'msg-id-1');
-		expect(api.readNote).toHaveBeenCalledWith('msg-id-1');
+		const r = await load(api, 'acct1', '/INBOX', 'msg-id-1');
+		expect(api.readNote).toHaveBeenCalledWith('acct1', '/INBOX', 'msg-id-1');
 		expect(r.text).toBe('t');
 	});
 });
@@ -24,7 +24,7 @@ describe('save conflict detection', () => {
 		const api = fakeApi({
 			readValues: [{ text: 'remote', version: 5, versions: [], timestamp: 't', source: null }],
 		});
-		const result = await save(api, 'msg-id-1', {
+		const result = await save(api, 'acct1', '/INBOX', 'msg-id-1', {
 			newText: 'x', baseVersion: 3, storeSource: false, versionsCap: 50,
 		});
 		expect(result.conflict).toBe(true);
@@ -36,7 +36,7 @@ describe('save conflict detection', () => {
 		const api = fakeApi({
 			readValues: [{ text: 'old', version: 3, versions: [], timestamp: 't', source: null }],
 		});
-		const result = await save(api, 'msg-id-1', {
+		const result = await save(api, 'acct1', '/INBOX', 'msg-id-1', {
 			newText: 'new', baseVersion: 3, storeSource: false, versionsCap: 50,
 		});
 		expect(result.conflict).toBe(false);
@@ -56,7 +56,7 @@ describe('save conflict detection', () => {
 		const api = fakeApi({
 			readValues: [{ text: '', version: 0, versions: [], timestamp: null, source: null }],
 		});
-		await save(api, 'msg-id-1', {
+		await save(api, 'acct1', '/INBOX', 'msg-id-1', {
 			newText: 'hi', baseVersion: 0, storeSource: true, versionsCap: 50,
 		});
 		const noteData = api.writeNote.mock.calls[0][1];
@@ -68,7 +68,7 @@ describe('save conflict detection', () => {
 			readValues: [{ text: '', version: 0, versions: [], timestamp: null, source: null }],
 		});
 		api.getHostname = vi.fn(async () => { throw new Error('boom'); });
-		await save(api, 'msg-id-1', {
+		await save(api, 'acct1', '/INBOX', 'msg-id-1', {
 			newText: 'hi', baseVersion: 0, storeSource: true, versionsCap: 50,
 		});
 		const noteData = api.writeNote.mock.calls[0][1];
@@ -87,7 +87,7 @@ describe('save retry on write failure', () => {
 				return { newMessageId: 'new-id' };
 			},
 		});
-		const result = await save(api, 'm', {
+		const result = await save(api, 'acct1', '/INBOX', 'm', {
 			newText: 'x', baseVersion: 0, storeSource: false, versionsCap: 50,
 			retryDelaysMs: [0, 0, 0],
 		});
@@ -100,7 +100,7 @@ describe('save retry on write failure', () => {
 			readValues: [{ text: '', version: 0, versions: [], timestamp: null, source: null }],
 			writeImpl: async () => { throw new Error('always fails'); },
 		});
-		await expect(save(api, 'm', {
+		await expect(save(api, 'acct1', '/INBOX', 'm', {
 			newText: 'x', baseVersion: 0, storeSource: false, versionsCap: 50,
 			retryDelaysMs: [0, 0, 0],
 		})).rejects.toThrow('always fails');
