@@ -124,13 +124,20 @@ def fetch_server_headers(cfg: BackendConfig, message_id: str,
 
 
 def wait_for_server_header(cfg: BackendConfig, message_id: str, folder: str,
-                           max_attempts: int, interval_s: float = 1.0) -> dict:
+                           max_attempts: int, interval_s: float = 1.0,
+                           require_single_uid: bool = False) -> dict:
     """Poll `folder` up to max_attempts times (1s apart by default) for X-Hu-note.
-    Early-exit on first hit — usually returns after 1-2s if fast path works."""
+    Early-exit on first hit — usually returns after 1-2s if fast path works.
+
+    If require_single_uid=True, also wait until total_uids == 1 — covers Gmail
+    label-sync lag where new-with-note UID appears before old UID is evicted
+    from All Mail (soft-delete → Trash label add is async on Gmail's side)."""
     last = None
     for attempt in range(1, max_attempts + 1):
         last = fetch_server_headers(cfg, message_id, folder_override=folder)
-        if last.get("has_x_hu_note"):
+        note_ok = last.get("has_x_hu_note")
+        uid_ok = (not require_single_uid) or last.get("total_uids") == 1
+        if note_ok and uid_ok:
             last["attempts"] = attempt
             return last
         if attempt < max_attempts:
@@ -318,7 +325,8 @@ def test_b_propagates_to_all_mail(m: Marionette, cfg: BackendConfig, msgid: str)
         return
     print(f"\n[TEST B] Gmail label propagation: X-Hu-note in {cfg.all_mail_folder}")
     result = wait_for_server_header(cfg, msgid,
-                                    folder=cfg.all_mail_folder, max_attempts=120)
+                                    folder=cfg.all_mail_folder, max_attempts=120,
+                                    require_single_uid=True)
     _log(f"{cfg.all_mail_folder} after save: uid={result.get('uid')} "
          f"total_uids={result.get('total_uids')} attempts={result.get('attempts')} "
          f"has_x_hu_note={result.get('has_x_hu_note')}")
