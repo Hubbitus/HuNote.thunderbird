@@ -82,6 +82,13 @@
         "parameters": [
           { "name": "messageId", "type": "string" }
         ]
+      },
+      {
+        "name": "isOffline",
+        "type": "function",
+        "async": true,
+        "description": "Return true if Thunderbird is in offline mode (Services.io.offline).",
+        "parameters": []
       }
     ]
   }

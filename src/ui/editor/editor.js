@@ -22,6 +22,9 @@ function applyI18n() {
 		} catch {}
 	}
 }
+function getI18n(key) {
+	try { return browser.i18n.getMessage(key); } catch { return ''; }
+}
 
 let baseVersion = 0;
 let originalText = '';
@@ -48,6 +51,16 @@ async function init() {
 	const settings = await browser.runtime.sendMessage({ kind: 'getSettings' });
 	maxLen = settings.maxNoteLength;
 	updateCounter();
+
+	const offRes = await browser.runtime.sendMessage({ kind: 'isOffline' });
+	if (offRes?.offline) {
+		textEl.disabled = true;
+		saveBtn.disabled = true;
+		saveBtn.title = getI18n('offlineReadOnly') || 'Offline';
+		showBanner(getI18n('offlineReadOnly') || 'Thunderbird is offline — notes are read-only.');
+		historyBtn.disabled = !messageId;
+		return;
+	}
 
 	const loaded = await browser.runtime.sendMessage({ kind: 'load', messageId, accountId, folderPath });
 	if (loaded?.error) { showBanner('Load failed: ' + loaded.error); return; }

@@ -288,8 +288,11 @@ this.imapNote = class extends ExtensionCommon.ExtensionAPI {
 				async isGmailFolder(messageId) {
 					const hdr = findMsgHdrByMessageId(messageId);
 					if (!hdr) return false;
-					const host = (hdr.folder.server.hostName || "").toLowerCase();
+					const host = extractServerHost(hdr.folder.server).toLowerCase();
 					return host === "imap.gmail.com" || host === "imap.googlemail.com";
+				},
+				async isOffline() {
+					return Services.io.offline;
 				},
 			},
 		};
@@ -297,6 +300,21 @@ this.imapNote = class extends ExtensionCommon.ExtensionAPI {
 };
 
 const MAX_CONT_LEN = 75;
+
+// TB153 quirk: server.hostName returns literal "undefined" on some IMAP servers.
+// Fall back to parsing serverURI which is always well-formed.
+function extractServerHost(server) {
+	try {
+		const h = server.hostName;
+		if (h && h !== "undefined") return String(h);
+	} catch (_) {}
+	try {
+		const uri = String(server.serverURI || "");
+		const m = uri.match(/@([^/:]+)/);
+		return m ? m[1] : "";
+	} catch (_) {}
+	return "";
+}
 
 function encodeBase64Utf8(text) {
 	const bytes = new TextEncoder().encode(text);

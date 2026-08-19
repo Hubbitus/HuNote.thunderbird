@@ -46,12 +46,21 @@ def _dovecot() -> BackendConfig:
 
 def _gmail_real() -> BackendConfig:
     # Credentials MUST come from env — never hardcoded. dev-scripts/.env is gitignored.
-    user = os.environ["HUNOTE_GMAIL_USER"]
-    pw = os.environ["HUNOTE_GMAIL_APP_PASS"]
+    # Accept both HUNOTE_GMAIL_* (explicit) and IMAP_USER/IMAP_PASS (matches
+    # dev-scripts/.env schema so `set -a; . dev-scripts/.env; set +a` works directly).
+    user = os.environ.get("HUNOTE_GMAIL_USER") or os.environ.get("IMAP_USER")
+    pw = os.environ.get("HUNOTE_GMAIL_APP_PASS") or os.environ.get("IMAP_PASS")
+    if not user or not pw:
+        raise SystemExit(
+            "gmail-real backend requires HUNOTE_GMAIL_USER + HUNOTE_GMAIL_APP_PASS "
+            "(or IMAP_USER + IMAP_PASS from dev-scripts/.env)"
+        )
     return BackendConfig(
         kind="gmail-real",
-        imap_host=os.environ.get("HUNOTE_IMAP_HOST", "imap.gmail.com"),
-        imap_port=int(os.environ.get("HUNOTE_IMAP_PORT", "993")),
+        imap_host=(os.environ.get("HUNOTE_IMAP_HOST")
+                   or os.environ.get("IMAP_HOST") or "imap.gmail.com"),
+        imap_port=int(os.environ.get("HUNOTE_IMAP_PORT")
+                      or os.environ.get("IMAP_PORT") or "993"),
         imap_user=user,
         imap_pass=pw,
         all_mail_folder=os.environ.get("HUNOTE_ALL_MAIL", "[Gmail]/Вся почта"),

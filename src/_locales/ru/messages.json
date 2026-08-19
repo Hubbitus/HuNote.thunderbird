@@ -11,5 +11,7 @@
   "historyCompareLabel": { "message": "Сравнить" },
   "historyEmpty": { "message": "История пуста. Сохраните заметку ещё раз, чтобы начать вести версии." },
   "historyCurrent": { "message": "текущая" },
-  "historyNoDiff": { "message": "Различий нет" }
+  "historyNoDiff": { "message": "Различий нет" },
+  "offlineReadOnly": { "message": "Thunderbird в оффлайне — заметки только для чтения." },
+  "offlineCannotSave": { "message": "Thunderbird в оффлайне. Подключитесь для сохранения заметок." }
 }

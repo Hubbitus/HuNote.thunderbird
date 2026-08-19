@@ -41,7 +41,9 @@ function installBrowser({ selectedMsg = null, isImap = true, isGmail = false } =
 			getHostname: vi.fn(async () => 'h'),
 			isImapFolder: vi.fn(async () => isImap),
 			isGmailFolder: vi.fn(async () => isGmail),
+			isOffline: vi.fn(async () => false),
 		},
+		i18n: { getMessage: (k) => k },
 		gridColumn: { refreshHunoteColumn },
 	};
 	return { windowsCreate, tabsCreate, notify, refreshHunoteColumn };
@@ -201,7 +203,57 @@ describe('background onMessage handlers', () => {
 		globalThis.browser.imapNote.readNote = vi.fn(async () => { throw new Error('boom'); });
 		loadBg();
 		const res = await onMessageListener({ kind: 'load', messageId: 'm1' });
-		expect(res).toEqual({ error: 'boom' });
+		expect(res.error).toMatch(/boom/);
+	});
+});
+
+describe('background offline guards', () => {
+	it('isOffline handler returns {offline:true} when Services.io.offline', async () => {
+		installBrowser();
+		globalThis.browser.imapNote.isOffline = vi.fn(async () => true);
+		loadBg();
+		const res = await onMessageListener({ kind: 'isOffline' });
+		expect(res).toEqual({ offline: true });
+	});
+
+	it('save throws offline error when TB offline', async () => {
+		installBrowser();
+		globalThis.browser.imapNote.isOffline = vi.fn(async () => true);
+		loadBg();
+		const res = await onMessageListener({ kind: 'save', messageId: 'm1', newText: 'x', baseVersion: 0 });
+		expect(res.error).toMatch(/offlineCannotSave/);
+		expect(globalThis.browser.imapNote.writeNote).not.toHaveBeenCalled();
+	});
+
+	it('delete throws offline error when TB offline', async () => {
+		installBrowser();
+		globalThis.browser.imapNote.isOffline = vi.fn(async () => true);
+		globalThis.browser.imapNote.deleteNote = vi.fn(async () => ({ newMessageId: 'x' }));
+		loadBg();
+		const res = await onMessageListener({ kind: 'delete', messageId: 'm1' });
+		expect(res.error).toMatch(/offlineCannotSave/);
+		expect(globalThis.browser.imapNote.deleteNote).not.toHaveBeenCalled();
+	});
+
+	it('openEditor returns {error:offline} + fires notification when offline', async () => {
+		const { windowsCreate, notify } = installBrowser();
+		globalThis.browser.imapNote.isOffline = vi.fn(async () => true);
+		loadBg();
+		const res = await onMessageListener({ kind: 'openEditor', messageId: 'm1' });
+		expect(res.error).toBe('offline');
+		expect(windowsCreate).not.toHaveBeenCalled();
+		expect(notify).toHaveBeenCalledOnce();
+	});
+
+	it('commands.onCommand shows notification + skips window.create when offline', async () => {
+		const { windowsCreate, notify } = installBrowser({
+			selectedMsg: { headerMessageId: 'x', folder: { accountId: 'a', path: '/I' } },
+		});
+		globalThis.browser.imapNote.isOffline = vi.fn(async () => true);
+		loadBg();
+		await onCommandListener('open-note-editor');
+		expect(windowsCreate).not.toHaveBeenCalled();
+		expect(notify).toHaveBeenCalledOnce();
 	});
 });
 

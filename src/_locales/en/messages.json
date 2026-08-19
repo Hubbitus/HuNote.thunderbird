@@ -11,5 +11,7 @@
   "historyCompareLabel": { "message": "Compare" },
   "historyEmpty": { "message": "No history yet. Save the note again to start a version chain." },
   "historyCurrent": { "message": "current" },
-  "historyNoDiff": { "message": "No differences" }
+  "historyNoDiff": { "message": "No differences" },
+  "offlineReadOnly": { "message": "Thunderbird is offline — notes are read-only." },
+  "offlineCannotSave": { "message": "Thunderbird is offline. Reconnect to save notes." }
 }

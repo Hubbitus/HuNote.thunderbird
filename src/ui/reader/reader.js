@@ -43,8 +43,13 @@
 
 		const editBtn = container.querySelector('.hn-edit-btn');
 		editBtn.textContent = editLabel;
-		editBtn.addEventListener('click', () => {
-			browser.runtime.sendMessage({ kind: 'openEditor', messageId, accountId, folderPath });
+		editBtn.addEventListener('click', async () => {
+			const res = await browser.runtime.sendMessage({ kind: 'openEditor', messageId, accountId, folderPath });
+			if (res?.error === 'offline') {
+				editBtn.disabled = true;
+				editBtn.title = res.message || (getI18n('offlineReadOnly') || 'Offline');
+				editBtn.textContent = '⛔ ' + editLabel;
+			}
 		});
 
 		if (hasHistory) {

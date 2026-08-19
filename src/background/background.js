@@ -1,5 +1,28 @@
 import * as service from './note-service.js';
 
+// Experiment APIs must be present. If TB failed to load them (stale
+// extensions.json cache after TB upgrade, unprivileged addon, manifest parse
+// skip), fail loudly at startup instead of returning cryptic "undefined"
+// errors from every save/load later.
+function assertExperimentAPIs() {
+	const missing = [];
+	if (!globalThis.browser?.imapNote || typeof browser.imapNote.isImapFolder !== 'function') missing.push('imapNote');
+	if (!globalThis.browser?.gridColumn || typeof browser.gridColumn.refreshHunoteColumn !== 'function') missing.push('gridColumn');
+	if (missing.length) {
+		const msg = `HuNote: experiment_apis not loaded: [${missing.join(', ')}]. `
+			+ `Likely stale profile cache after TB upgrade, or addon not privileged. `
+			+ `Fix: wipe extensions.json + addonStartup.json.lz4 from profile and restart TB.`;
+		console.error(msg);
+		try {
+			browser.notifications.create({
+				type: 'basic', title: 'HuNote broken', message: msg, iconUrl: 'icons/hunote-48.png',
+			});
+		} catch {}
+		throw new Error(msg);
+	}
+}
+assertExperimentAPIs();
+
 browser.runtime.onStartup.addListener(() => {});
 browser.runtime.onInstalled.addListener(() => {});
 
@@ -31,6 +54,15 @@ function msgLocator(msg) {
 
 browser.commands.onCommand.addListener(async (name) => {
 	if (name !== 'open-note-editor') return;
+	if (await browser.imapNote.isOffline()) {
+		browser.notifications.create({
+			type: 'basic',
+			title: 'HuNote',
+			message: browser.i18n.getMessage('offlineReadOnly'),
+			iconUrl: 'icons/hunote-48.png',
+		});
+		return;
+	}
 	const msg = await currentDisplayedMessage();
 	if (!msg) {
 		browser.notifications.create({
@@ -62,6 +94,9 @@ browser.runtime.onMessage.addListener(async (req) => {
 				return { ...note, isImap };
 			}
 			case 'save': {
+				if (await browser.imapNote.isOffline()) {
+					throw new Error(browser.i18n.getMessage('offlineCannotSave'));
+				}
 				const settings = await getSettings();
 				const isImap = await browser.imapNote.isImapFolder(req.messageId);
 				if (!isImap) throw new Error('Notes require an IMAP folder.');
@@ -80,6 +115,9 @@ browser.runtime.onMessage.addListener(async (req) => {
 				return result;
 			}
 			case 'delete': {
+				if (await browser.imapNote.isOffline()) {
+					throw new Error(browser.i18n.getMessage('offlineCannotSave'));
+				}
 				const isImap = await browser.imapNote.isImapFolder(req.messageId);
 				if (!isImap) throw new Error('Notes require an IMAP folder.');
 				const gmail = await browser.imapNote.isGmailFolder(req.messageId);
@@ -104,6 +142,15 @@ browser.runtime.onMessage.addListener(async (req) => {
 				return { ok: true };
 			}
 			case 'openEditor': {
+				if (await browser.imapNote.isOffline()) {
+					const msg = browser.i18n.getMessage('offlineReadOnly');
+					try {
+						browser.notifications.create({
+							type: 'basic', title: 'HuNote', message: msg, iconUrl: 'icons/hunote-48.png',
+						});
+					} catch {}
+					return { error: 'offline', message: msg };
+				}
 				let accountId = req.accountId ?? null;
 				let folderPath = req.folderPath ?? null;
 				let messageId = req.messageId ?? null;
@@ -130,9 +177,16 @@ browser.runtime.onMessage.addListener(async (req) => {
 				const msg = await currentDisplayedMessage();
 				return msgLocator(msg);
 			}
+			case 'isOffline': {
+				return { offline: await browser.imapNote.isOffline() };
+			}
 		}
 	} catch (e) {
-		return { error: String(e?.message ?? e) };
+		console.error('HuNote req failed:', req?.kind, e);
+		return {
+			error: `HuNote[${req?.kind ?? '?'}]: ${e?.message ?? e}`,
+			stack: e?.stack ?? null,
+		};
 	}
 });
 

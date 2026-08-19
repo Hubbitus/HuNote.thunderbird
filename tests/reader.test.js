@@ -258,6 +258,39 @@ describe('reader.js inline render', () => {
 		expect(btn.textContent).toContain('port closed');
 	});
 
+	it('Edit button disables + shows ⛔ badge when bg returns {error:offline}', async () => {
+		installBrowser({
+			messageId: 'm1',
+			note: { text: 't', version: 1, versions: [], timestamp: 'x', source: null },
+			i18n: { editBtn: 'Edit', offlineReadOnly: 'TB offline' },
+		});
+		await runReader();
+		const btn = document.querySelector('.hn-edit-btn');
+		globalThis.browser.runtime.sendMessage.mockClear();
+		globalThis.browser.runtime.sendMessage.mockResolvedValueOnce({ error: 'offline', message: 'TB offline' });
+		btn.click();
+		await new Promise((r) => setTimeout(r, 0));
+		expect(btn.disabled).toBe(true);
+		expect(btn.textContent).toBe('⛔ Edit');
+		expect(btn.title).toBe('TB offline');
+	});
+
+	it('Edit button offline fallback title uses offlineReadOnly key when message absent', async () => {
+		installBrowser({
+			messageId: 'm1',
+			note: { text: 't', version: 1, versions: [], timestamp: 'x', source: null },
+			i18n: { offlineReadOnly: 'Оффлайн' },
+		});
+		await runReader();
+		const btn = document.querySelector('.hn-edit-btn');
+		globalThis.browser.runtime.sendMessage.mockClear();
+		globalThis.browser.runtime.sendMessage.mockResolvedValueOnce({ error: 'offline' });
+		btn.click();
+		await new Promise((r) => setTimeout(r, 0));
+		expect(btn.disabled).toBe(true);
+		expect(btn.title).toBe('Оффлайн');
+	});
+
 	it('re-renders when bg broadcasts noteUpdated', async () => {
 		let currentNote = { text: 'old', version: 1, versions: [], timestamp: 'x', source: null };
 		globalThis.browser = {

@@ -20,6 +20,10 @@ Usage:
     # list all folders (no --mid, no --folder)
     ./dev-scripts/mail-fetch.py --list
 
+    # filter headers (case-insensitive; trailing * = prefix)
+    ./dev-scripts/mail-fetch.py --mid "<id>" --headers-include "from,to,subject,x-hu-*"
+    ./dev-scripts/mail-fetch.py --folder INBOX --headers-exclude "received,arc-*,dkim-*,x-google-*"
+
 Env (dev-scripts/.env or process env):
     IMAP_HOST, IMAP_PORT, IMAP_SSL (0/1), IMAP_USER, IMAP_PASS
 
@@ -32,6 +36,41 @@ import os
 import re
 import sys
 from pathlib import Path
+
+
+def imap_utf7_decode(s):
+    """IMAP modified UTF-7 (RFC 3501 §5.1.3) → unicode. Returns original on failure."""
+    try:
+        out = []
+        i = 0
+        while i < len(s):
+            ch = s[i]
+            if ch == "&":
+                j = s.find("-", i + 1)
+                if j < 0:
+                    return s
+                chunk = s[i + 1 : j]
+                if chunk == "":
+                    out.append("&")
+                else:
+                    b64 = chunk.replace(",", "/") + "=" * (-len(chunk) % 4)
+                    import base64
+                    out.append(base64.b64decode(b64).decode("utf-16-be"))
+                i = j + 1
+            else:
+                out.append(ch)
+                i += 1
+        return "".join(out)
+    except Exception:
+        return s
+
+
+def folder_display(name):
+    """Format folder for display: UTF-8 decoded, IMAP-encoded original in parens if differ."""
+    decoded = imap_utf7_decode(name)
+    if decoded != name:
+        return f"{decoded} ({name})"
+    return name
 
 
 def load_env():
@@ -138,9 +177,55 @@ def list_all_uids(c, folder):
     return [u.decode() for u in data[0].split()]
 
 
-def dump_uid(c, folder, uid, want_headers=True, want_raw=False):
+def _split_headers(raw):
+    """Split RFC822 header block into [(name, full_line_incl_continuations)]."""
+    out = []
+    cur_name = None
+    cur_lines = []
+    for line in raw.split("\n"):
+        line = line.rstrip("\r")
+        if not line:
+            break
+        if line[:1] in (" ", "\t"):
+            cur_lines.append(line)
+            continue
+        if cur_name is not None:
+            out.append((cur_name, "\n".join(cur_lines)))
+        name = line.split(":", 1)[0] if ":" in line else line
+        cur_name = name
+        cur_lines = [line]
+    if cur_name is not None:
+        out.append((cur_name, "\n".join(cur_lines)))
+    return out
+
+
+def _hdr_match(name, patterns):
+    """Case-insensitive match. Pattern may end with '*' for prefix."""
+    n = name.lower()
+    for p in patterns:
+        p = p.strip().lower()
+        if not p:
+            continue
+        if p.endswith("*"):
+            if n.startswith(p[:-1]):
+                return True
+        elif n == p:
+            return True
+    return False
+
+
+def filter_headers(raw, include=None, exclude=None):
+    parts = _split_headers(raw)
+    if include:
+        parts = [(n, l) for (n, l) in parts if _hdr_match(n, include)]
+    if exclude:
+        parts = [(n, l) for (n, l) in parts if not _hdr_match(n, exclude)]
+    return "\n".join(l for (_, l) in parts)
+
+
+def dump_uid(c, folder, uid, want_headers=True, want_raw=False, hdr_include=None, hdr_exclude=None):
     print("=" * 78)
-    print(f"FOLDER: {folder}")
+    print(f"FOLDER: {folder_display(folder)}")
     print(f"UID:    {uid}")
     meta = fetch_meta(c, uid)
     if meta:
@@ -152,6 +237,8 @@ def dump_uid(c, folder, uid, want_headers=True, want_raw=False):
     if want_headers:
         hdrs = fetch_headers(c, uid)
         if hdrs:
+            if hdr_include or hdr_exclude:
+                hdrs = filter_headers(hdrs, hdr_include, hdr_exclude)
             print("-- HEADERS --")
             print(hdrs.rstrip())
     if want_raw:
@@ -173,6 +260,8 @@ def main():
             "  ./dev-scripts/mail-fetch.py --folder INBOX\n"
             "  ./dev-scripts/mail-fetch.py --folder \"[Gmail]/All Mail\" --raw --limit 5\n"
             "  ./dev-scripts/mail-fetch.py --list\n"
+            "  ./dev-scripts/mail-fetch.py --mid \"<id>\" --headers-include \"from,to,subject,x-hu-*\"\n"
+            "  ./dev-scripts/mail-fetch.py --folder INBOX --headers-exclude \"received,arc-*,dkim-*\"\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -181,6 +270,8 @@ def main():
     ap.add_argument("--limit", type=int, default=0, help="Max messages when dumping folder (0 = no limit)")
     ap.add_argument("--raw", action="store_true", help="Also dump raw RFC822 body")
     ap.add_argument("--no-headers", action="store_true", help="Suppress header block")
+    ap.add_argument("--headers-include", help="Comma-sep header names to KEEP (case-insensitive; trailing * = prefix). e.g. 'from,to,x-hu-*'")
+    ap.add_argument("--headers-exclude", help="Comma-sep header names to DROP (case-insensitive; trailing * = prefix). e.g. 'received,arc-*,dkim-*'")
     ap.add_argument("--list", action="store_true", help="Just list all folders and exit")
     args = ap.parse_args()
 
@@ -197,10 +288,12 @@ def main():
     try:
         if args.list:
             for f in list_folders(c):
-                print(f)
+                print(folder_display(f))
             return
 
         want_headers = not args.no_headers
+        hdr_inc = args.headers_include.split(",") if args.headers_include else None
+        hdr_exc = args.headers_exclude.split(",") if args.headers_exclude else None
 
         if args.mid:
             folders = [args.folder] if args.folder else list_folders(c)
@@ -212,7 +305,8 @@ def main():
                 uids = search_folder(c, folder, args.mid)
                 for uid in uids:
                     hits += 1
-                    dump_uid(c, folder, uid, want_headers=want_headers, want_raw=args.raw)
+                    dump_uid(c, folder, uid, want_headers=want_headers, want_raw=args.raw,
+                             hdr_include=hdr_inc, hdr_exclude=hdr_exc)
             print(f"# total hits: {hits}" if hits else "# no matches found")
             return
 
@@ -221,11 +315,12 @@ def main():
         uids = list_all_uids(c, folder)
         if args.limit > 0:
             uids = uids[-args.limit:]
-        print(f"# folder={folder} messages={len(uids)}")
+        print(f"# folder={folder_display(folder)} messages={len(uids)}")
         print(f"# host={os.environ['IMAP_HOST']} user={os.environ['IMAP_USER']}")
         print()
         for uid in uids:
-            dump_uid(c, folder, uid, want_headers=want_headers, want_raw=args.raw)
+            dump_uid(c, folder, uid, want_headers=want_headers, want_raw=args.raw,
+                     hdr_include=hdr_inc, hdr_exclude=hdr_exc)
         print(f"# dumped {len(uids)} message(s)")
     finally:
         try:
