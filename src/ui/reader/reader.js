@@ -110,5 +110,28 @@
 		if (msg?.kind === 'noteUpdated') render();
 	});
 
+	// Right-click inside opened message body → "HuNote: add note". Created from
+	// the message_display_script scope so the item appears in the reader iframe
+	// context menu (background scope cannot inject there). See background.js for
+	// the parallel item on the grid (contexts: ["message_list"]).
+	try {
+		browser.menus.create({
+			id: 'hunote-add-note-reader',
+			title: browser.i18n.getMessage('ctxAddNote'),
+			contexts: ['page', 'frame', 'selection'],
+		});
+		browser.menus.onClicked.addListener(async (info) => {
+			if (info.menuItemId !== 'hunote-add-note-reader') return;
+			const loc = await browser.runtime.sendMessage({ kind: 'currentMessageId' });
+			if (!loc?.messageId) return;
+			await browser.runtime.sendMessage({
+				kind: 'openEditor',
+				messageId: loc.messageId,
+				accountId: loc.accountId,
+				folderPath: loc.folderPath,
+			});
+		});
+	} catch (_) { /* menus API unavailable (e.g. test harness) */ }
+
 	await render();
 })();
