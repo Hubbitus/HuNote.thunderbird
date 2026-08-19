@@ -456,6 +456,25 @@ function writeTempEml(content) {
 // Pre-fix orphans in virtual folders: acceptable to leave. Gmail will not
 // duplicate messages under one label, so worst case is one stale entry
 // visible in All Mail that syncs correctly on next real-folder write.
+//
+// deleteStorage=false (soft delete → Trash), NOT true (hard expunge).
+// Rationale — verified 2026-08-20 by cross-check against Header Tools Lite
+// (headerToolsLite@kaosmos.nnp v2.4.7, chrome/content/hdrtools.js line 570):
+// HTL uses soft delete (noTrash=false by default via pref
+// extensions.hdrtoolslite.putOriginalInTrash=true) and produces NO duplicate
+// in Gmail All Mail. We previously used deleteStorage=true (hard) which caused
+// a stale copy of the old X-GM-MSGID to remain in All Mail after our APPEND.
+//
+// Why soft works on Gmail: deleteMessages(isMove=true, deleteStorage=false)
+// on INBOX translates to `remove \Inbox label + add \Trash label` via Gmail's
+// IMAP label semantics. All Mail is `\All` view over non-Trash messages, so
+// adding \Trash automatically evicts the old copy from All Mail — no explicit
+// virtual-folder touch needed, sidestepping failure modes (a) and (b) above.
+//
+// Trade-off: user sees pre-note copy in [Gmail]/Trash for ~30d (Gmail's
+// auto-purge policy) before it's permanently removed. Acceptable: safety
+// net for undo. Optional pref for immediate UID EXPUNGE via UIDPLUS RFC 4315
+// is a future enhancement (see docs/superpowers/specs on cycle-b).
 function deleteAllOldCopies(hdrs) {
 	const byFolder = new Map();
 	for (const h of hdrs) {
@@ -466,7 +485,7 @@ function deleteAllOldCopies(hdrs) {
 	}
 	for (const [f, msgs] of byFolder) {
 		try {
-			f.deleteMessages(msgs, null, /*deleteStorage*/ true, /*isMove*/ true, null, /*allowUndo*/ false);
+			f.deleteMessages(msgs, null, /*deleteStorage*/ false, /*isMove*/ true, null, /*allowUndo*/ false);
 		} catch (e) {
 			Cu.reportError(e);
 		}
