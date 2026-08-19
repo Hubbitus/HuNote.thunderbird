@@ -2,6 +2,7 @@
   "extensionName": { "message": "HuNote" },
   "extensionDescription": { "message": "Заметки к письмам, сохраняемые на IMAP-сервере в заголовках." },
   "editBtn": { "message": "Изменить" },
+  "ctxAddNote": { "message": "HuNote: добавить заметку" },
   "historyBtn": { "message": "История" },
   "deleteBtn": { "message": "Удалить заметку" },
   "deleteConfirm": { "message": "Удалить заметку и всю её историю? Действие необратимо." },

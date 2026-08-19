@@ -11,10 +11,12 @@ const BG_SRC = readFileSync(BG_PATH, 'utf8')
 
 let onMessageListener = null;
 let onCommandListener = null;
+let onMenuClickListener = null;
 
 function installBrowser({ selectedMsg = null, isImap = true, isGmail = false } = {}) {
 	onMessageListener = null;
 	onCommandListener = null;
+	onMenuClickListener = null;
 	const windowsCreate = vi.fn(async () => ({ id: 1 }));
 	const tabsCreate = vi.fn(async () => ({ id: 2 }));
 	const notify = vi.fn();
@@ -45,6 +47,10 @@ function installBrowser({ selectedMsg = null, isImap = true, isGmail = false } =
 		},
 		i18n: { getMessage: (k) => k },
 		gridColumn: { refreshHunoteColumn },
+		menus: {
+			create: vi.fn(),
+			onClicked: { addListener: (l) => { onMenuClickListener = l; } },
+		},
 	};
 	return { windowsCreate, tabsCreate, notify, refreshHunoteColumn };
 }
@@ -281,5 +287,67 @@ describe('background onCommand', () => {
 		await onCommandListener('other-command');
 		expect(windowsCreate).not.toHaveBeenCalled();
 		expect(notify).not.toHaveBeenCalled();
+	});
+});
+
+describe('background context menu', () => {
+	it('registers hunote-add-note item on startup', async () => {
+		installBrowser();
+		loadBg();
+		expect(globalThis.browser.menus.create).toHaveBeenCalledWith(expect.objectContaining({
+			id: 'hunote-add-note',
+			contexts: ['message_list'],
+		}));
+	});
+
+	it('opens editor for info.selectedMessages when menu clicked', async () => {
+		const { windowsCreate } = installBrowser();
+		loadBg();
+		const info = {
+			menuItemId: 'hunote-add-note',
+			selectedMessages: { messages: [{ headerMessageId: 'ctx@x', folder: { accountId: 'a1', path: '/INBOX' } }] },
+		};
+		await onMenuClickListener(info, {});
+		expect(windowsCreate).toHaveBeenCalledWith(expect.objectContaining({
+			url: expect.stringContaining('messageId=ctx%40x'),
+			type: 'popup',
+		}));
+	});
+
+	it('falls back to currentDisplayedMessage when selectedMessages absent', async () => {
+		const { windowsCreate } = installBrowser({
+			selectedMsg: { headerMessageId: 'fallback@x', folder: { accountId: 'a', path: '/I' } },
+		});
+		loadBg();
+		await onMenuClickListener({ menuItemId: 'hunote-add-note' }, {});
+		expect(windowsCreate).toHaveBeenCalledWith(expect.objectContaining({
+			url: expect.stringContaining('messageId=fallback%40x'),
+		}));
+	});
+
+	it('ignores unrelated menuItemId', async () => {
+		const { windowsCreate } = installBrowser({ selectedMsg: { headerMessageId: 'x' } });
+		loadBg();
+		await onMenuClickListener({ menuItemId: 'other-item' }, {});
+		expect(windowsCreate).not.toHaveBeenCalled();
+	});
+
+	it('shows notification + skips window when offline', async () => {
+		const { windowsCreate, notify } = installBrowser({
+			selectedMsg: { headerMessageId: 'x', folder: { accountId: 'a', path: '/I' } },
+		});
+		globalThis.browser.imapNote.isOffline = vi.fn(async () => true);
+		loadBg();
+		await onMenuClickListener({ menuItemId: 'hunote-add-note' }, {});
+		expect(windowsCreate).not.toHaveBeenCalled();
+		expect(notify).toHaveBeenCalledOnce();
+	});
+
+	it('shows notification when no message selectable', async () => {
+		const { windowsCreate, notify } = installBrowser({ selectedMsg: null });
+		loadBg();
+		await onMenuClickListener({ menuItemId: 'hunote-add-note' }, {});
+		expect(windowsCreate).not.toHaveBeenCalled();
+		expect(notify).toHaveBeenCalledOnce();
 	});
 });

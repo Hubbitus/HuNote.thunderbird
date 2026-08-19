@@ -52,17 +52,34 @@ function msgLocator(msg) {
 	};
 }
 
-browser.commands.onCommand.addListener(async (name) => {
-	if (name !== 'open-note-editor') return;
+async function openEditorForLocator(loc) {
+	const qs = `messageId=${encodeURIComponent(loc.messageId)}`
+		+ `&accountId=${encodeURIComponent(loc.accountId ?? '')}`
+		+ `&folderPath=${encodeURIComponent(loc.folderPath ?? '')}`;
+	await browser.windows.create({
+		url: `ui/editor/editor.html?${qs}`,
+		type: 'popup',
+		width: 500,
+		height: 400,
+	});
+}
+
+async function requireOnlineOrNotify(offlineMsgKey = 'offlineReadOnly') {
 	if (await browser.imapNote.isOffline()) {
 		browser.notifications.create({
 			type: 'basic',
 			title: 'HuNote',
-			message: browser.i18n.getMessage('offlineReadOnly'),
+			message: browser.i18n.getMessage(offlineMsgKey),
 			iconUrl: 'icons/hunote-48.png',
 		});
-		return;
+		return false;
 	}
+	return true;
+}
+
+browser.commands.onCommand.addListener(async (name) => {
+	if (name !== 'open-note-editor') return;
+	if (!(await requireOnlineOrNotify())) return;
 	const msg = await currentDisplayedMessage();
 	if (!msg) {
 		browser.notifications.create({
@@ -73,16 +90,36 @@ browser.commands.onCommand.addListener(async (name) => {
 		});
 		return;
 	}
-	const loc = msgLocator(msg);
-	const qs = `messageId=${encodeURIComponent(loc.messageId)}`
-		+ `&accountId=${encodeURIComponent(loc.accountId ?? '')}`
-		+ `&folderPath=${encodeURIComponent(loc.folderPath ?? '')}`;
-	await browser.windows.create({
-		url: `ui/editor/editor.html?${qs}`,
-		type: 'popup',
-		width: 500,
-		height: 400,
-	});
+	await openEditorForLocator(msgLocator(msg));
+});
+
+// Context menu: right-click on a message in the grid → "HuNote: add note".
+// Mirrors Header Tools Lite pattern (contexts: ["message_list"]).
+// Right-click INSIDE the opened message body is added separately from
+// reader.js (message_display_script context) — background scope cannot inject
+// items into the reader iframe context menu.
+browser.menus.create({
+	id: 'hunote-add-note',
+	title: browser.i18n.getMessage('ctxAddNote'),
+	contexts: ['message_list'],
+});
+
+browser.menus.onClicked.addListener(async (info, _tab) => {
+	if (info.menuItemId !== 'hunote-add-note') return;
+	if (!(await requireOnlineOrNotify())) return;
+	const msg = info.selectedMessages?.messages?.[0]
+		?? info.displayedMessages?.messages?.[0]
+		?? await currentDisplayedMessage();
+	if (!msg) {
+		browser.notifications.create({
+			type: 'basic',
+			title: 'HuNote',
+			message: 'No message selected.',
+			iconUrl: 'icons/hunote-48.png',
+		});
+		return;
+	}
+	await openEditorForLocator(msgLocator(msg));
 });
 
 browser.runtime.onMessage.addListener(async (req) => {

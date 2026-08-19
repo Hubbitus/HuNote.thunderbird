@@ -2,6 +2,7 @@
   "extensionName": { "message": "HuNote" },
   "extensionDescription": { "message": "Server-stored notes for email messages via IMAP headers." },
   "editBtn": { "message": "Edit" },
+  "ctxAddNote": { "message": "HuNote: add note" },
   "historyBtn": { "message": "History" },
   "deleteBtn": { "message": "Delete note" },
   "deleteConfirm": { "message": "Delete note and all its history? This cannot be undone." },

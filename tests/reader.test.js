@@ -11,11 +11,13 @@ const READER_SRC = readFileSync(
 
 function installBrowser({ messageId, note, i18n = {}, accountId = 'acct1', folderPath = '/INBOX' }) {
 	const listeners = [];
+	const menuListeners = [];
 	globalThis.browser = {
 		runtime: {
 			sendMessage: vi.fn(async (req) => {
 				if (req.kind === 'currentMessageId') return { messageId, accountId, folderPath };
 				if (req.kind === 'load') return note;
+				if (req.kind === 'isOffline') return { offline: false };
 				return { ok: true };
 			}),
 			onMessage: {
@@ -24,6 +26,13 @@ function installBrowser({ messageId, note, i18n = {}, accountId = 'acct1', folde
 			},
 		},
 		i18n: { getMessage: (k) => i18n[k] ?? '' },
+		menus: {
+			create: vi.fn(),
+			onClicked: {
+				addListener: vi.fn((fn) => menuListeners.push(fn)),
+				_emit: (info) => Promise.all(menuListeners.map((fn) => fn(info))),
+			},
+		},
 	};
 }
 
@@ -36,6 +45,7 @@ async function runReader() {
 beforeEach(() => {
 	document.body.innerHTML = '';
 	delete globalThis.browser;
+	delete globalThis.__hunoteMenuInstalled;
 });
 
 describe('reader.js inline render', () => {
@@ -291,6 +301,77 @@ describe('reader.js inline render', () => {
 		expect(btn.title).toBe('Оффлайн');
 	});
 
+	it('registers reader context menu once with correct id/contexts', async () => {
+		installBrowser({
+			messageId: 'm1',
+			note: { text: 't', version: 1, versions: [], timestamp: 'x', source: null },
+			i18n: { ctxAddNote: 'HuNote: add note' },
+		});
+		await runReader();
+		expect(globalThis.browser.menus.create).toHaveBeenCalledTimes(1);
+		const arg = globalThis.browser.menus.create.mock.calls[0][0];
+		expect(arg.id).toBe('hunote-add-note-reader');
+		expect(arg.title).toBe('HuNote: add note');
+		expect(arg.contexts).toEqual(['page', 'frame', 'selection']);
+		expect(globalThis.browser.menus.onClicked.addListener).toHaveBeenCalledTimes(1);
+	});
+
+	it('second IIFE run does NOT re-register menu (guard via globalThis flag)', async () => {
+		installBrowser({
+			messageId: 'm1',
+			note: { text: 't', version: 1, versions: [], timestamp: 'x', source: null },
+		});
+		await runReader();
+		expect(globalThis.browser.menus.create).toHaveBeenCalledTimes(1);
+		expect(globalThis.browser.menus.onClicked.addListener).toHaveBeenCalledTimes(1);
+		await runReader();
+		expect(globalThis.browser.menus.create).toHaveBeenCalledTimes(1);
+		expect(globalThis.browser.menus.onClicked.addListener).toHaveBeenCalledTimes(1);
+	});
+
+	it('reader menu click sends openEditor with current locator', async () => {
+		installBrowser({
+			messageId: 'm1',
+			note: { text: 't', version: 1, versions: [], timestamp: 'x', source: null },
+		});
+		await runReader();
+		globalThis.browser.runtime.sendMessage.mockClear();
+		await globalThis.browser.menus.onClicked._emit({ menuItemId: 'hunote-add-note-reader' });
+		expect(globalThis.browser.runtime.sendMessage).toHaveBeenCalledWith({ kind: 'isOffline' });
+		expect(globalThis.browser.runtime.sendMessage).toHaveBeenCalledWith({ kind: 'currentMessageId' });
+		expect(globalThis.browser.runtime.sendMessage).toHaveBeenCalledWith({
+			kind: 'openEditor', messageId: 'm1', accountId: 'acct1', folderPath: '/INBOX',
+		});
+	});
+
+	it('reader menu click ignored when offline', async () => {
+		installBrowser({
+			messageId: 'm1',
+			note: { text: 't', version: 1, versions: [], timestamp: 'x', source: null },
+		});
+		await runReader();
+		globalThis.browser.runtime.sendMessage.mockImplementation(async (req) => {
+			if (req.kind === 'isOffline') return { offline: true };
+			return { ok: true };
+		});
+		globalThis.browser.runtime.sendMessage.mockClear();
+		await globalThis.browser.menus.onClicked._emit({ menuItemId: 'hunote-add-note-reader' });
+		const kinds = globalThis.browser.runtime.sendMessage.mock.calls.map((c) => c[0].kind);
+		expect(kinds).toContain('isOffline');
+		expect(kinds).not.toContain('openEditor');
+	});
+
+	it('reader menu click ignores unrelated menuItemId', async () => {
+		installBrowser({
+			messageId: 'm1',
+			note: { text: 't', version: 1, versions: [], timestamp: 'x', source: null },
+		});
+		await runReader();
+		globalThis.browser.runtime.sendMessage.mockClear();
+		await globalThis.browser.menus.onClicked._emit({ menuItemId: 'some-other-id' });
+		expect(globalThis.browser.runtime.sendMessage).not.toHaveBeenCalled();
+	});
+
 	it('re-renders when bg broadcasts noteUpdated', async () => {
 		let currentNote = { text: 'old', version: 1, versions: [], timestamp: 'x', source: null };
 		globalThis.browser = {
@@ -307,6 +388,10 @@ describe('reader.js inline render', () => {
 				},
 			},
 			i18n: { getMessage: () => '' },
+			menus: {
+				create: vi.fn(),
+				onClicked: { addListener: vi.fn() },
+			},
 		};
 		await runReader();
 		expect(document.querySelector('.hn-body').textContent).toBe('old');

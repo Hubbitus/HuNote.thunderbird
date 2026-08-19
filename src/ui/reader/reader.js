@@ -110,5 +110,40 @@
 		if (msg?.kind === 'noteUpdated') render();
 	});
 
+	// Right-click inside opened message body → "HuNote: add note". Created from
+	// the message_display_script scope so the item appears in the reader iframe
+	// context menu (background scope cannot inject there). See background.js for
+	// the parallel item on the grid (contexts: ["message_list"]).
+	//
+	// This IIFE re-runs per message opened. menus.create with duplicate id
+	// throws "id already exists" — swallowed here. onClicked listener would
+	// pile up per re-run → editor opens N times. Guard via globalThis flag
+	// (persists per iframe realm) so create + addListener run at most once.
+	if (!globalThis.__hunoteMenuInstalled) {
+		globalThis.__hunoteMenuInstalled = true;
+		try {
+			browser.menus.create({
+				id: 'hunote-add-note-reader',
+				title: browser.i18n.getMessage('ctxAddNote'),
+				contexts: ['page', 'frame', 'selection'],
+			});
+			browser.menus.onClicked.addListener(async (info) => {
+				if (info.menuItemId !== 'hunote-add-note-reader') return;
+				const off = await browser.runtime.sendMessage({ kind: 'isOffline' });
+				if (off?.offline) return;
+				const loc = await browser.runtime.sendMessage({ kind: 'currentMessageId' });
+				if (!loc?.messageId) return;
+				await browser.runtime.sendMessage({
+					kind: 'openEditor',
+					messageId: loc.messageId,
+					accountId: loc.accountId,
+					folderPath: loc.folderPath,
+				});
+			});
+		} catch (e) {
+			console.error('[HuNote] menus.create failed:', e);
+		}
+	}
+
 	await render();
 })();
