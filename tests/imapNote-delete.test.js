@@ -295,9 +295,9 @@ describe('deleteAllOldCopies', () => {
 		const h2 = { folder: f2 };
 		deleteAllOldCopies([h1a, h2, h1b]);
 		expect(f1.deleteMessages).toHaveBeenCalledOnce();
-		expect(f1.deleteMessages).toHaveBeenCalledWith([h1a, h1b], null, true, true, null, false);
+		expect(f1.deleteMessages).toHaveBeenCalledWith([h1a, h1b], null, false, true, null, false);
 		expect(f2.deleteMessages).toHaveBeenCalledOnce();
-		expect(f2.deleteMessages).toHaveBeenCalledWith([h2], null, true, true, null, false);
+		expect(f2.deleteMessages).toHaveBeenCalledWith([h2], null, false, true, null, false);
 	});
 
 	it('swallows per-folder errors and continues', () => {
