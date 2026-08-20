@@ -1,4 +1,4 @@
-.PHONY: help test test-e2e test-e2e-gui coverage pack verify-pack lint run run-fresh clean
+.PHONY: help test test-e2e test-e2e-gui coverage pack verify-pack run run-fresh clean
 
 SRC_DIR   := src
 BUILD_DIR := build
@@ -17,7 +17,6 @@ help:
 	@echo "  coverage      Run tests with coverage report"
 	@echo "  pack       Build $(XPI) from $(SRC_DIR)/"
 	@echo "  verify-pack   Verify manifest.version inside built XPI matches VERSION"
-	@echo "  lint          Run web-ext lint against $(SRC_DIR)/"
 	@echo "  run        Launch Thunderbird with disposable dev profile (reuse)"
 	@echo "  run-fresh  Same as run but wipes .tmp/test-profile first"
 	@echo "  clean      Remove $(BUILD_DIR)/, $(DIST_DIR)/ and coverage output"
@@ -53,8 +52,8 @@ verify-pack:
 	 test "$$ACTUAL" = "$$EXPECTED" || (echo "mismatch: manifest=$$ACTUAL expected=$$EXPECTED" && exit 1); \
 	 echo "verify-pack ok ($$ACTUAL)"
 
-lint:
-	@npx web-ext lint --source-dir=$(SRC_DIR) --pretty
+# No lint target: web-ext lint = Firefox validator, always errors on TB experiment_apis.
+# No Thunderbird-aware linter exists (checked 2026-08-20). ATN validates on upload.
 
 run:
 	./thunderbird-run.sh

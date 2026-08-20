@@ -3,14 +3,17 @@
   "private": true,
   "type": "module",
   "description": "Thunderbird extension: server-stored notes via IMAP headers",
+  "//scripts": "web-ext lint intentionally omitted: Firefox-only validator, always errors on TB experiment_apis. No TB-aware linter exists (checked 2026-08-20). ATN validates on upload.",
   "scripts": {
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
-    "coverage": "vitest run --coverage"
+    "coverage": "vitest run --coverage",
+    "pack": "make pack"
   },
   "devDependencies": {
-    "@vitest/coverage-v8": "^2.1.0",
+    "@vitest/coverage-v8": "^4.1.11",
     "jsdom": "^30.0.1",
-    "vitest": "^2.1.0"
+    "vitest": "^4.1.11",
+    "web-ext": "^10.6.0"
   }
 }
