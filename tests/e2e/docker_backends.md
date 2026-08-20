@@ -14,7 +14,7 @@ Two IMAP backends run in CI. Both are available locally via Docker Compose.
 docker compose -f docker/docker-compose.dovecot.yml up -d imap
 docker compose -f docker/docker-compose.dovecot.yml run --rm \
     -e TB_VERSION=140.14.0esr tb \
-    bash -c 'make pack && pytest tests/e2e/ -v'
+    bash -c 'make pack && ./tests/e2e/ci_bootstrap.sh'
 docker compose -f docker/docker-compose.dovecot.yml down
 ```
 
@@ -24,7 +24,7 @@ docker compose -f docker/docker-compose.dovecot.yml down
 docker compose -f docker/docker-compose.greenmail.yml up -d imap
 docker compose -f docker/docker-compose.greenmail.yml run --rm \
     -e TB_VERSION=153.1.0esr tb \
-    bash -c 'make pack && pytest tests/e2e/ -v'
+    bash -c 'make pack && ./tests/e2e/ci_bootstrap.sh'
 docker compose -f docker/docker-compose.greenmail.yml down
 ```
 

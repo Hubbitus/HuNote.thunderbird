@@ -29,4 +29,4 @@ ENV PATH="/opt/venv/bin:${PATH}" \
     MOZ_HEADLESS=1
 
 WORKDIR /hunote
-CMD ["bash", "-c", "Xvfb :99 -screen 0 1280x1024x24 & sleep 1 && pytest tests/e2e/ -v"]
+CMD ["bash", "-c", "make pack && ./tests/e2e/ci_bootstrap.sh"]

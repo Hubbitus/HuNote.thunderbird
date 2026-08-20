@@ -45,7 +45,7 @@ jobs:
           compose="docker/docker-compose.${{ matrix.imap }}.yml"
           docker compose -f "$compose" up -d imap
           docker compose -f "$compose" run --rm tb \
-              bash -c 'make pack && pytest tests/e2e/ -v'
+              bash -c 'make pack && ./tests/e2e/ci_bootstrap.sh'
           docker compose -f "$compose" down
 
   build:
