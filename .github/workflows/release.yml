@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  extract-version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        run: |
+          set -euo pipefail
+          ref="${GITHUB_REF_NAME}"
+          version="${ref#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::tag $ref not semver X.Y.Z"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "resolved VERSION=$version"
+
+  ci:
+    needs: extract-version
+    uses: ./.github/workflows/ci.yml
+    with:
+      version: ${{ needs.extract-version.outputs.version }}
+
+  publish:
+    needs: [extract-version, ci]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: hunote-xpi
+          path: dist/
+      - name: Sign + submit to ATN
+        uses: kewisch/action-web-ext@v2
+        with:
+          cmd: sign
+          source: dist/hunote-${{ needs.extract-version.outputs.version }}.xpi
+          channel: listed
+          apiUrlPrefix: https://addons.thunderbird.net/api/v4
+          apiKey: ${{ secrets.ATN_SIGN_KEY }}
+          apiSecret: ${{ secrets.ATN_SIGN_SECRET }}
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+              "dist/hunote-${{ needs.extract-version.outputs.version }}.xpi" \
+              --generate-notes
