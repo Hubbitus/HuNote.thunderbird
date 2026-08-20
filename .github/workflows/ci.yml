@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:
+    inputs:
+      version:
+        description: Version string to stamp into the XPI (empty → dev timestamp).
+        required: false
+        type: string
+        default: ''
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  e2e:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        tb: ["140.14.0esr", "153.1.0esr", "154.0"]
+        imap: [dovecot, greenmail]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Boot sidecar + run e2e
+        env:
+          TB_VERSION: ${{ matrix.tb }}
+        run: |
+          set -euo pipefail
+          compose="docker/docker-compose.${{ matrix.imap }}.yml"
+          docker compose -f "$compose" up -d imap
+          docker compose -f "$compose" run --rm tb \
+              bash -c 'make pack && pytest tests/e2e/ -v'
+          docker compose -f "$compose" down
+
+  build:
+    needs: [unit, e2e]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Build XPI
+        env:
+          VERSION: ${{ inputs.version || github.sha }}
+        run: |
+          make pack
+          make verify-pack
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hunote-xpi
+          path: dist/hunote-*.xpi
+          if-no-files-found: error
+          retention-days: 14
