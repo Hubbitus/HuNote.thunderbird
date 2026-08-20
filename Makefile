@@ -1,5 +1,8 @@
 .PHONY: help test test-e2e test-e2e-gui coverage pack verify-pack run run-fresh clean
 
+# verify-pack uses bash herestring `<<<`; force bash so it works under Ubuntu /bin/sh=dash (CI).
+SHELL := /bin/bash
+
 SRC_DIR   := src
 BUILD_DIR := build
 DIST_DIR  := dist
