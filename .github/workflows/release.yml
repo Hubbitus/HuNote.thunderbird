@@ -41,6 +41,7 @@ jobs:
           name: hunote-xpi
           path: dist/
       - name: Submit to ATN (listed review, no wait)
+        continue-on-error: true
         uses: kewisch/action-web-ext@v2
         with:
           cmd: sign
