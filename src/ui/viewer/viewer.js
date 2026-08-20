@@ -85,14 +85,21 @@ function renderList() {
 		const row = document.createElement('div');
 		row.className = 'hn-version' + (entry.v === currentV ? ' current' : '');
 		row.dataset.v = String(entry.v);
-		row.innerHTML = `
-			<div><span class="hn-v-num">v${entry.v}</span> <span class="hn-v-ts"></span></div>
-			<div class="hn-v-src"></div>
-			<div class="hn-v-preview"></div>
-		`;
-		row.querySelector('.hn-v-ts').textContent = formatTs(entry.ts);
-		row.querySelector('.hn-v-src').textContent = entry.source ?? '—';
-		row.querySelector('.hn-v-preview').textContent = previewText(entry.text);
+		const line1 = document.createElement('div');
+		const num = document.createElement('span');
+		num.className = 'hn-v-num';
+		num.textContent = `v${entry.v}`;
+		const ts = document.createElement('span');
+		ts.className = 'hn-v-ts';
+		ts.textContent = formatTs(entry.ts);
+		line1.append(num, ' ', ts);
+		const src = document.createElement('div');
+		src.className = 'hn-v-src';
+		src.textContent = entry.source ?? '—';
+		const prev = document.createElement('div');
+		prev.className = 'hn-v-preview';
+		prev.textContent = previewText(entry.text);
+		row.append(line1, src, prev);
 		row.addEventListener('click', () => {
 			leftSel.value = String(entry.v);
 			onSelectChange();
@@ -149,8 +156,8 @@ function renderDiff() {
 	const diff = myersDiff(splitLines(left.text ?? ''), splitLines(right.text ?? ''));
 
 	if (diff.every((op) => op.op === '=')) {
-		leftPre.innerHTML = '';
-		rightPre.innerHTML = '';
+		leftPre.textContent = '';
+		rightPre.textContent = '';
 		const msg = getI18n('historyNoDiff') || 'No differences';
 		leftPre.appendChild(nodiffNode(msg));
 		rightPre.appendChild(nodiffNode(msg));

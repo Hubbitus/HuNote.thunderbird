@@ -26,20 +26,41 @@
 
 		const container = document.createElement('div');
 		container.id = 'hunote-inline';
-		container.innerHTML = `
-			<div class="hn-hdr">
-				<span class="hn-hdr-text"><span class="hn-icon">📝</span> <span class="hn-hdr-label"></span></span>
-				<span class="hn-btns">
-					<button class="hn-edit-btn" type="button"></button>
-					${hasHistory ? '<button class="hn-history-btn" type="button"></button>' : ''}
-					${hasText ? '<button class="hn-delete-btn" type="button"></button>' : ''}
-				</span>
-			</div>
-			<pre class="hn-body"></pre>
-		`;
-		container.querySelector('.hn-hdr-label').textContent =
+		const hdr = document.createElement('div');
+		hdr.className = 'hn-hdr';
+		const hdrText = document.createElement('span');
+		hdrText.className = 'hn-hdr-text';
+		const icon = document.createElement('span');
+		icon.className = 'hn-icon';
+		icon.textContent = '📝';
+		const hdrLabel = document.createElement('span');
+		hdrLabel.className = 'hn-hdr-label';
+		hdrLabel.textContent =
 			`HuNote (v${note.version}, ${note.timestamp || '—'}${note.source ? ' from ' + note.source : ''})`;
-		container.querySelector('.hn-body').textContent = hasText ? note.text : '(empty)';
+		hdrText.append(icon, ' ', hdrLabel);
+		const btns = document.createElement('span');
+		btns.className = 'hn-btns';
+		const editBtnEl = document.createElement('button');
+		editBtnEl.className = 'hn-edit-btn';
+		editBtnEl.type = 'button';
+		btns.append(editBtnEl);
+		if (hasHistory) {
+			const b = document.createElement('button');
+			b.className = 'hn-history-btn';
+			b.type = 'button';
+			btns.append(b);
+		}
+		if (hasText) {
+			const b = document.createElement('button');
+			b.className = 'hn-delete-btn';
+			b.type = 'button';
+			btns.append(b);
+		}
+		hdr.append(hdrText, btns);
+		const body = document.createElement('pre');
+		body.className = 'hn-body';
+		body.textContent = hasText ? note.text : '(empty)';
+		container.append(hdr, body);
 
 		const editBtn = container.querySelector('.hn-edit-btn');
 		editBtn.textContent = editLabel;
