@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "HuNote",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "description": "Server-stored notes for email messages via IMAP headers.",
   "author": "Pavel Alexeev",
   "browser_specific_settings": {
