@@ -11,6 +11,7 @@
       "strict_max_version": "154.*"
     }
   },
+  "homepage_url": "https://github.com/Hubbitus/HuNote.thunderbird",
   "background": {
     "scripts": ["background/background.js"],
     "type": "module"
@@ -53,7 +54,7 @@
     "32": "icons/hunote-32.png",
     "48": "icons/hunote-48.png",
     "96": "icons/hunote-96.png",
-    "128": "icons/hunote.svg"
+    "128": "icons/hunote-128.png"
   },
   "default_locale": "en"
 }

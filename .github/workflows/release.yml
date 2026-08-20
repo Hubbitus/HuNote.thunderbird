@@ -40,7 +40,7 @@ jobs:
         with:
           name: hunote-xpi
           path: dist/
-      - name: Sign + submit to ATN
+      - name: Submit to ATN (listed review, no wait)
         uses: kewisch/action-web-ext@v2
         with:
           cmd: sign
@@ -49,6 +49,7 @@ jobs:
           apiUrlPrefix: https://addons.thunderbird.net/api/v4
           apiKey: ${{ secrets.ATN_SIGN_KEY }}
           apiSecret: ${{ secrets.ATN_SIGN_SECRET }}
+          approvalTimeout: 0
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
