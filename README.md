@@ -145,7 +145,7 @@ Smoke checklist: [`docs/smoke/2026-08-14-cycle-a-smoke.md`](docs/smoke/2026-08-1
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+GPL-3.0-or-later — see [LICENSE](LICENSE).
 
 ## Author
 

@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "description": "Thunderbird extension: server-stored notes via IMAP headers",
+  "license": "GPL-3.0-or-later",
   "//scripts": "web-ext lint intentionally omitted: Firefox-only validator, always errors on TB experiment_apis. No TB-aware linter exists (checked 2026-08-20). ATN validates on upload.",
   "scripts": {
     "test": "vitest run --passWithNoTests",
