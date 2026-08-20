@@ -35,8 +35,8 @@ jobs:
     needs: [extract-version, ci]
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
         with:
           name: hunote-xpi
           path: dist/
