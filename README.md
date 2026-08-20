@@ -138,6 +138,32 @@ Smoke checklist: [`docs/smoke/2026-08-14-cycle-a-smoke.md`](docs/smoke/2026-08-1
 | M     | Markdown rendering                                   | planned       |
 | AS    | Autosave with debounce                               | planned       |
 
+## Screenshots
+
+### Inline note under the message header
+
+Light-green box appears under the header of any message that has an `X-Hu-note`. Edit and Delete note buttons on the right.
+
+![Inline note in reader](docs/images/01-reader-inline-note.png)
+
+### Editor popup
+
+Character counter, dirty indicator, explicit Save / History / Cancel. Textarea grows with the note.
+
+![Editor popup](docs/images/02-editor.png)
+
+### Version viewer with diff
+
+Every save appends to `X-Hu-note-versions`. The viewer lists all versions and shows a side-by-side line diff between any two.
+
+![Version viewer with diff](docs/images/03-history.png)
+
+### Options
+
+Max note length, host-name recording toggle, version history cap. Hotkey is rebound in Thunderbird → Add-ons → HuNote → Options (managed by TB, not by the extension).
+
+![Options page](docs/images/04-options.png)
+
 ## Related
 
 - [headerTools-lite-NG](https://github.com/opto/headerTools-lite-NG) — provided the reference IMAP APPEND+DELETE pattern that HuNote's Experiment API is built on.
