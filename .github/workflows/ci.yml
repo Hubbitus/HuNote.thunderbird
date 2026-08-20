@@ -64,7 +64,7 @@ jobs:
         run: |
           make pack
           make verify-pack
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: hunote-xpi
           path: dist/hunote-*.xpi
