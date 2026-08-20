@@ -24,6 +24,8 @@ Trade-off: writing a note performs an IMAP APPEND + EXPUNGE (the message UID cha
 
 IMAP itself has no "modify headers on an existing message" operation. Neither the raw IMAP protocol nor Gmail's flavor of it (`X-GM-LABELS`, `X-GM-MSGID`) expose a way to mutate the RFC 5322 headers of a stored message. Custom flags (`\Flag` keywords) exist but hold at most a short label per flag, not free-text notes.
 
+The IMAP extension that _would_ solve this cleanly — [RFC 5464 IMAP METADATA](https://datatracker.ietf.org/doc/html/rfc5464) (`SETMETADATA` / `GETMETADATA` — attach arbitrary key/value entries to a mailbox or message, no rewrite needed) — is **not implemented by Gmail** (verified: `SETMETADATA` returns `BAD`). Dovecot and Cyrus support it, but HuNote's target audience is Gmail users, so relying on METADATA would exclude the primary use case.
+
 To store a note in headers HuNote therefore does the only thing IMAP allows:
 
 1. **APPEND** a full copy of the message to the same folder, with the note headers added / updated.
