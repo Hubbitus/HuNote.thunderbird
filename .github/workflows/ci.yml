@@ -20,7 +20,7 @@ jobs:
   unit:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
@@ -36,7 +36,7 @@ jobs:
         tb: ["140.14.0esr", "153.1.0esr", "154.0"]
         imap: [dovecot, greenmail]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Boot sidecar + run e2e
         env:
           TB_VERSION: ${{ matrix.tb }}
@@ -52,7 +52,7 @@ jobs:
     needs: [unit, e2e]
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
