@@ -28,7 +28,7 @@ e2e_cleanup() {
 e2e_build_xpi() {
 	echo "== build XPI =="
 	make pack >/dev/null
-	XPI_ABS="$(readlink -f dist/hunote.xpi)"
+	XPI_ABS="$(readlink -f dist/hunote-*.xpi | head -n1)"
 	export XPI_ABS
 }
 

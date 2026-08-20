@@ -1,8 +1,11 @@
-.PHONY: help test test-e2e test-e2e-gui coverage pack run run-fresh clean
+.PHONY: help test test-e2e test-e2e-gui coverage pack verify-pack lint run run-fresh clean
 
-XPI      := dist/hunote.xpi
-SRC_DIR  := src
-DIST_DIR := dist
+SRC_DIR   := src
+BUILD_DIR := build
+DIST_DIR  := dist
+VERSION   ?= $(shell date +%Y%m%d%H%M%S)
+# semver X.Y.Z passes through unchanged; timestamps become 0.0.0.<ts> (TB-valid 4-segment).
+XPI       := $(DIST_DIR)/hunote-$(VERSION).xpi
 
 help:
 	@echo "HuNote — Thunderbird extension (server-stored notes via IMAP headers)"
@@ -13,9 +16,11 @@ help:
 	@echo "  test-e2e-gui  Run unit + E2E with visible TB window"
 	@echo "  coverage      Run tests with coverage report"
 	@echo "  pack       Build $(XPI) from $(SRC_DIR)/"
+	@echo "  verify-pack   Verify manifest.version inside built XPI matches VERSION"
+	@echo "  lint          Run web-ext lint against $(SRC_DIR)/"
 	@echo "  run        Launch Thunderbird with disposable dev profile (reuse)"
 	@echo "  run-fresh  Same as run but wipes .tmp/test-profile first"
-	@echo "  clean      Remove $(DIST_DIR)/ and coverage output"
+	@echo "  clean      Remove $(BUILD_DIR)/, $(DIST_DIR)/ and coverage output"
 
 test:
 	./run.tests.sh
@@ -29,10 +34,27 @@ test-e2e-gui:
 coverage:
 	pnpm exec vitest run --coverage
 
-pack: clean
-	mkdir -p $(DIST_DIR)
-	cd $(SRC_DIR) && zip -r ../$(XPI) . -x '*.DS_Store'
-	@echo "Built $(XPI) ($$(du -h $(XPI) | cut -f1))"
+pack:
+	@rm -rf $(BUILD_DIR) $(XPI)
+	@mkdir -p $(BUILD_DIR) $(DIST_DIR)
+	@cp -r $(SRC_DIR)/. $(BUILD_DIR)/
+	@jq --arg v "$(VERSION)" \
+	    '.version = (if ($$v | test("^[0-9]+\\.[0-9]+\\.[0-9]+$$")) then $$v else "0.0.0." + $$v end)' \
+	    $(SRC_DIR)/manifest.json > $(BUILD_DIR)/manifest.json
+	@cd $(BUILD_DIR) && zip -qr ../$(XPI) . -x '*.DS_Store'
+	@echo "Built $(XPI) (manifest.version=$$(jq -r .version $(BUILD_DIR)/manifest.json), size=$$(du -h $(XPI) | cut -f1))"
+
+verify-pack:
+	@test -f $(XPI) || (echo "no XPI at $(XPI); run 'make pack' first" && exit 1)
+	@ACTUAL=$$(unzip -p $(XPI) manifest.json | jq -r .version); \
+	 EXPECTED=$$(jq -r --arg v "$(VERSION)" \
+	    '(if ($$v | test("^[0-9]+\\.[0-9]+\\.[0-9]+$$")) then $$v else "0.0.0." + $$v end)' \
+	    <<<'{}'); \
+	 test "$$ACTUAL" = "$$EXPECTED" || (echo "mismatch: manifest=$$ACTUAL expected=$$EXPECTED" && exit 1); \
+	 echo "verify-pack ok ($$ACTUAL)"
+
+lint:
+	@npx web-ext lint --source-dir=$(SRC_DIR) --pretty
 
 run:
 	./thunderbird-run.sh
@@ -41,4 +63,4 @@ run-fresh:
 	./thunderbird-run.sh --fresh
 
 clean:
-	rm -rf $(DIST_DIR) coverage
+	rm -rf $(BUILD_DIR) $(DIST_DIR) coverage
