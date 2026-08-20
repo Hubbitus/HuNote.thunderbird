@@ -3,11 +3,11 @@ services:
     image: docker.io/dovecot/dovecot:latest
     container_name: hunote-e2e-dovecot
     ports:
-      - "1143:143"
+      - "1144:1143"
     volumes:
       - ../tests/e2e/dovecot:/etc/dovecot:ro
     healthcheck:
-      test: ["CMD-SHELL", "printf 'a1 LOGIN user@greenmail.local any\r\na2 LOGOUT\r\n' | nc -w2 127.0.0.1 143 | grep -q OK"]
+      test: ["CMD", "sh", "-c", "r=$$(printf 'a1 LOGOUT\\r\\n' | nc -w2 127.0.0.1 1143); case \"$$r\" in *OK*) exit 0;; esac; exit 1"]
       interval: 3s
       timeout: 4s
       retries: 20
@@ -25,7 +25,7 @@ services:
     environment:
       HUNOTE_BACKEND: dovecot
       HUNOTE_IMAP_HOST: imap
-      HUNOTE_GM_IMAP: "143"
+      HUNOTE_GM_IMAP: "1143"
       HUNOTE_IMAP_USER: user@greenmail.local
       HUNOTE_IMAP_PASS: any
     volumes:

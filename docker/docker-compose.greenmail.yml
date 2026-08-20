@@ -8,7 +8,7 @@ services:
       - "4243:3143"
       - "4280:8080"
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/api/service/readiness || exit 1"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/3143 && printf 'a1 LOGOUT\\r\\n' >&3 && head -c 100 <&3 | grep -q '^\\* OK'"]
       interval: 3s
       timeout: 4s
       retries: 20
