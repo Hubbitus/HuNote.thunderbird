@@ -69,18 +69,22 @@
         "name": "isImapFolder",
         "type": "function",
         "async": true,
-        "description": "Return true if the folder containing this message is IMAP.",
+        "description": "Return true if the folder is IMAP. Pass accountId+folderPath for O(1) lookup; omit to fall back to slow tree walk by messageId.",
         "parameters": [
-          { "name": "messageId", "type": "string" }
+          { "name": "messageId", "type": "string" },
+          { "name": "accountId", "type": "string", "optional": true },
+          { "name": "folderPath", "type": "string", "optional": true }
         ]
       },
       {
         "name": "isGmailFolder",
         "type": "function",
         "async": true,
-        "description": "Return true if the folder's IMAP server is Gmail.",
+        "description": "Return true if the folder's IMAP server is Gmail. Pass accountId+folderPath for O(1) lookup.",
         "parameters": [
-          { "name": "messageId", "type": "string" }
+          { "name": "messageId", "type": "string" },
+          { "name": "accountId", "type": "string", "optional": true },
+          { "name": "folderPath", "type": "string", "optional": true }
         ]
       },
       {

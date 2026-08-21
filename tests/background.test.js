@@ -204,6 +204,36 @@ describe('background onMessage handlers', () => {
 		expect(res.newVersion).toBe(1);
 	});
 
+	// Regression: on large mailboxes, isImapFolder(messageId) without coords does a
+	// recursive openFolderDB tree walk that races IMAP threads and crashes TB
+	// (SIGSEGV in nsMsgDatabase::MatchDbName). Handlers MUST forward accountId +
+	// folderPath so the Experiment API can O(1)-resolve the folder instead.
+	// See: https://github.com/Hubbitus/HuNote.thunderbird/issues/13
+	it('load forwards accountId + folderPath to isImapFolder (no tree-walk)', async () => {
+		installBrowser({ isImap: true });
+		loadBg();
+		await onMessageListener({ kind: 'load', messageId: 'm1', accountId: 'acct1', folderPath: '/INBOX' });
+		expect(globalThis.browser.imapNote.isImapFolder).toHaveBeenCalledWith('m1', 'acct1', '/INBOX');
+	});
+
+	it('save forwards accountId + folderPath to isImapFolder + isGmailFolder', async () => {
+		installBrowser({ isImap: true });
+		globalThis.browser.imapNote.readNote = vi.fn(async () => ({ text: null, version: 0, versions: [], timestamp: null, source: null }));
+		loadBg();
+		await onMessageListener({ kind: 'save', messageId: 'm1', accountId: 'acct1', folderPath: '/INBOX', newText: 'x', baseVersion: 0 });
+		expect(globalThis.browser.imapNote.isImapFolder).toHaveBeenCalledWith('m1', 'acct1', '/INBOX');
+		expect(globalThis.browser.imapNote.isGmailFolder).toHaveBeenCalledWith('m1', 'acct1', '/INBOX');
+	});
+
+	it('delete forwards accountId + folderPath to isImapFolder + isGmailFolder', async () => {
+		installBrowser({ isImap: true });
+		globalThis.browser.imapNote.deleteNote = vi.fn(async () => ({ newMessageId: 'x' }));
+		loadBg();
+		await onMessageListener({ kind: 'delete', messageId: 'm1', accountId: 'acct1', folderPath: '/INBOX' });
+		expect(globalThis.browser.imapNote.isImapFolder).toHaveBeenCalledWith('m1', 'acct1', '/INBOX');
+		expect(globalThis.browser.imapNote.isGmailFolder).toHaveBeenCalledWith('m1', 'acct1', '/INBOX');
+	});
+
 	it('handler catches thrown errors', async () => {
 		installBrowser();
 		globalThis.browser.imapNote.readNote = vi.fn(async () => { throw new Error('boom'); });
