@@ -127,7 +127,7 @@ browser.runtime.onMessage.addListener(async (req) => {
 		switch (req.kind) {
 			case 'load': {
 				const note = await service.load(browser.imapNote, req.accountId, req.folderPath, req.messageId);
-				const isImap = await browser.imapNote.isImapFolder(req.messageId);
+				const isImap = await browser.imapNote.isImapFolder(req.messageId, req.accountId, req.folderPath);
 				return { ...note, isImap };
 			}
 			case 'save': {
@@ -135,9 +135,9 @@ browser.runtime.onMessage.addListener(async (req) => {
 					throw new Error(browser.i18n.getMessage('offlineCannotSave'));
 				}
 				const settings = await getSettings();
-				const isImap = await browser.imapNote.isImapFolder(req.messageId);
+				const isImap = await browser.imapNote.isImapFolder(req.messageId, req.accountId, req.folderPath);
 				if (!isImap) throw new Error('Notes require an IMAP folder.');
-				const gmail = await browser.imapNote.isGmailFolder(req.messageId);
+				const gmail = await browser.imapNote.isGmailFolder(req.messageId, req.accountId, req.folderPath);
 				const apiWithOptions = wrapWithGmailFlag(browser.imapNote, gmail);
 				const result = await service.save(apiWithOptions, req.accountId, req.folderPath, req.messageId, {
 					newText: req.newText,
@@ -155,9 +155,9 @@ browser.runtime.onMessage.addListener(async (req) => {
 				if (await browser.imapNote.isOffline()) {
 					throw new Error(browser.i18n.getMessage('offlineCannotSave'));
 				}
-				const isImap = await browser.imapNote.isImapFolder(req.messageId);
+				const isImap = await browser.imapNote.isImapFolder(req.messageId, req.accountId, req.folderPath);
 				if (!isImap) throw new Error('Notes require an IMAP folder.');
-				const gmail = await browser.imapNote.isGmailFolder(req.messageId);
+				const gmail = await browser.imapNote.isGmailFolder(req.messageId, req.accountId, req.folderPath);
 				const result = await browser.imapNote.deleteNote(req.messageId, { gmailDateHack: gmail });
 				broadcastNoteUpdated(req.messageId);
 				try { await browser.gridColumn.refreshHunoteColumn(); } catch {}

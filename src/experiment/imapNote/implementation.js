@@ -281,11 +281,26 @@ this.imapNote = class extends ExtensionCommon.ExtensionAPI {
 					const env = Cc["@mozilla.org/process/environment;1"].getService(Ci.nsIEnvironment);
 					return env.get("HOSTNAME") || env.get("COMPUTERNAME") || "unknown-host";
 				},
-				async isImapFolder(messageId) {
+				async isImapFolder(messageId, accountId, folderPath) {
+					// Fast path: resolve folder from known coords, no tree walk.
+					// Avoids opening .msf DB of every folder in every account, which
+					// races with live IMAP threads and crashes TB on large mailboxes
+					// (SIGSEGV in nsMsgDatabase::MatchDbName during openFolderDB).
+					if (accountId && folderPath) {
+						const folder = resolveFolder(accountId, folderPath);
+						if (folder) return folder.server.type === "imap";
+					}
 					const hdr = findMsgHdrByMessageId(messageId);
 					return hdr ? hdr.folder.server.type === "imap" : false;
 				},
-				async isGmailFolder(messageId) {
+				async isGmailFolder(messageId, accountId, folderPath) {
+					if (accountId && folderPath) {
+						const folder = resolveFolder(accountId, folderPath);
+						if (folder) {
+							const host = extractServerHost(folder.server).toLowerCase();
+							return host === "imap.gmail.com" || host === "imap.googlemail.com";
+						}
+					}
 					const hdr = findMsgHdrByMessageId(messageId);
 					if (!hdr) return false;
 					const host = extractServerHost(hdr.folder.server).toLowerCase();
