@@ -218,10 +218,15 @@ function reorderHunoteColumn(win) {
 		// no longer maps to the correct msgHdr. scanAll(win) below re-tags fresh.
 		const mo = observers.get(win);
 		if (mo) { try { mo.disconnect(); } catch (_) {} }
-		win.threadTree.reset();
-		if (mo) {
-			const tree = win.document.getElementById("threadTree");
-			if (tree) mo.observe(tree, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-properties"] });
+		try {
+			win.threadTree.reset();
+		} finally {
+			// Re-attach in finally: if reset() throws we still need the observer
+			// live for subsequent rows, otherwise badges stop updating silently.
+			if (mo) {
+				const tree = win.document.getElementById("threadTree");
+				if (tree) mo.observe(tree, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-properties"] });
+			}
 		}
 		dump("HuNote reorder: applied, HuNote at ordinal 6\n");
 	} catch (e) { dump("HuNote reorder error: " + e + "\n"); }

@@ -22,19 +22,21 @@ function extractFunction(src, name) {
 
 let reorderHunoteColumn;
 let dbHolder;
+let observersRef;
 
 beforeAll(() => {
 	const body = [
 		'const COLUMN_ID = "hunoteColumn";',
 		'const dump = () => {};',
 		'const columnStatesCache = new Map();',
-		'const observers = new WeakMap();',
+		'const observers = observersRef;',
 		'const dbService = { cachedDBForFolder: () => dbHolder.db };',
 		extractFunction(SRC, 'reorderHunoteColumn'),
 		'return { reorderHunoteColumn };',
 	].join('\n');
 	dbHolder = { db: null };
-	({ reorderHunoteColumn } = new Function('dbHolder', body)(dbHolder));
+	observersRef = new WeakMap();
+	({ reorderHunoteColumn } = new Function('dbHolder', 'observersRef', body)(dbHolder, observersRef));
 });
 
 let uriCounter = 0;
@@ -61,9 +63,16 @@ function mockWin({ existingState = null, threadPaneColumns = [] } = {}) {
 		},
 		threadTree: { reset: vi.fn() },
 		setTimeout: vi.fn(),
+		document: { getElementById: vi.fn(() => ({ _isTreeStub: true })) },
 	};
 	dbHolder.db = db;
 	return { win, dbInfo };
+}
+
+function installObserver(win) {
+	const mo = { disconnect: vi.fn(), observe: vi.fn() };
+	observersRef.set(win, mo);
+	return mo;
 }
 
 function persistedState(dbInfo) {
@@ -193,5 +202,39 @@ describe('reorderHunoteColumn', () => {
 		expect(s.weirdcol.ordinal).toBeUndefined(); // < 6 (treated as 0), no shift
 		expect(s.datecol.ordinal).toBe(7);
 		expect(s.hunoteColumn.ordinal).toBe(6);
+	});
+
+	it('brackets threadTree.reset() with observer disconnect + re-attach', () => {
+		const { win } = mockWin({
+			existingState: {
+				hunoteColumn: { visible: false, ordinal: 6 },
+				datecol: { visible: true, ordinal: 7 },
+			},
+		});
+		const mo = installObserver(win);
+		reorderHunoteColumn(win);
+		expect(mo.disconnect).toHaveBeenCalledOnce();
+		expect(win.threadTree.reset).toHaveBeenCalledOnce();
+		expect(mo.observe).toHaveBeenCalledOnce();
+		// Order: disconnect BEFORE reset, observe AFTER reset.
+		const discOrder = mo.disconnect.mock.invocationCallOrder[0];
+		const resetOrder = win.threadTree.reset.mock.invocationCallOrder[0];
+		const obsOrder = mo.observe.mock.invocationCallOrder[0];
+		expect(discOrder).toBeLessThan(resetOrder);
+		expect(resetOrder).toBeLessThan(obsOrder);
+	});
+
+	it('re-attaches observer even when threadTree.reset() throws (finally-block guarantee)', () => {
+		const { win } = mockWin({
+			existingState: {
+				hunoteColumn: { visible: false, ordinal: 6 },
+				datecol: { visible: true, ordinal: 7 },
+			},
+		});
+		const mo = installObserver(win);
+		win.threadTree.reset = vi.fn(() => { throw new Error('simulated reset failure'); });
+		reorderHunoteColumn(win); // outer try/catch swallows
+		expect(mo.disconnect).toHaveBeenCalledOnce();
+		expect(mo.observe).toHaveBeenCalledOnce(); // MUST re-attach despite throw
 	});
 });
