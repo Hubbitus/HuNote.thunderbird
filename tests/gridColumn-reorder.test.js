@@ -21,17 +21,22 @@ function extractFunction(src, name) {
 }
 
 let reorderHunoteColumn;
+let dbHolder;
 
 beforeAll(() => {
 	const body = [
 		'const COLUMN_ID = "hunoteColumn";',
 		'const dump = () => {};',
+		'const columnStatesCache = new Map();',
+		'const dbService = { cachedDBForFolder: () => dbHolder.db };',
 		extractFunction(SRC, 'reorderHunoteColumn'),
 		'return { reorderHunoteColumn };',
 	].join('\n');
-	({ reorderHunoteColumn } = new Function(body)());
+	dbHolder = { db: null };
+	({ reorderHunoteColumn } = new Function('dbHolder', body)(dbHolder));
 });
 
+let uriCounter = 0;
 function mockWin({ existingState = null, threadPaneColumns = [] } = {}) {
 	const dbInfo = {
 		_state: existingState ? JSON.stringify(existingState) : '',
@@ -43,9 +48,10 @@ function mockWin({ existingState = null, threadPaneColumns = [] } = {}) {
 			if (key === 'columnStates') this._state = val;
 		}),
 	};
+	const db = { dBFolderInfo: dbInfo };
 	const win = {
 		gFolder: {
-			msgDatabase: { dBFolderInfo: dbInfo },
+			URI: `imap://test/folder${++uriCounter}`,
 		},
 		threadPane: {
 			columns: threadPaneColumns,
@@ -53,7 +59,9 @@ function mockWin({ existingState = null, threadPaneColumns = [] } = {}) {
 			updateColumns: vi.fn(),
 		},
 		threadTree: { reset: vi.fn() },
+		setTimeout: vi.fn(),
 	};
+	dbHolder.db = db;
 	return { win, dbInfo };
 }
 
@@ -127,6 +135,29 @@ describe('reorderHunoteColumn', () => {
 		expect(s.datecol.ordinal).toBe(7); // shifted
 		expect(s.sizecol.ordinal).toBe(8); // shifted, still hidden
 		expect(s.sizecol.visible).toBe(false);
+	});
+
+	it('defers via setTimeout when cachedDBForFolder returns null (crash #16 guard)', () => {
+		const { win } = mockWin({});
+		dbHolder.db = null;
+		reorderHunoteColumn(win);
+		expect(win.setTimeout).toHaveBeenCalledOnce();
+		expect(win.threadPane.applyPersistedColumnsState).not.toHaveBeenCalled();
+		expect(win.threadTree.reset).not.toHaveBeenCalled();
+	});
+
+	it('skips setCharProperty on repeat when state unchanged (crash #16 guard)', () => {
+		const { win, dbInfo } = mockWin({
+			existingState: {
+				subjectcol: { visible: true, ordinal: 5 },
+				datecol: { visible: true, ordinal: 6 },
+			},
+		});
+		reorderHunoteColumn(win);
+		expect(dbInfo.setCharProperty).toHaveBeenCalledOnce();
+		dbInfo.setCharProperty.mockClear();
+		reorderHunoteColumn(win);
+		expect(dbInfo.setCharProperty).not.toHaveBeenCalled();
 	});
 
 	it('handles column with missing ordinal (treats as 0, does not shift)', () => {

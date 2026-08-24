@@ -4,6 +4,11 @@ var { ExtensionCommon } = ChromeUtils.importESModule("resource://gre/modules/Ext
 var { ThreadPaneColumns } = ChromeUtils.importESModule("chrome://messenger/content/ThreadPaneColumns.mjs");
 var { MailServices } = ChromeUtils.importESModule("resource:///modules/MailServices.sys.mjs");
 
+// nsIMsgDBService — use cachedDBForFolder() to avoid implicit openFolderDB()
+// racing with the IMAP thread (crash #13/#16 SIGSEGV in nsMsgDatabase::MatchDbName).
+const dbService = Cc["@mozilla.org/msgDatabase/msgDBService;1"]
+	.getService(Ci.nsIMsgDBService);
+
 const COLUMN_ID = "hunoteColumn";
 const HEADER_HAS_NOTE = "x-hu-note";
 const HEADER_TIMESTAMP = "x-hu-note-timestamp";
@@ -105,6 +110,9 @@ function doUnregister() {
 
 const watchedWindows = new WeakSet();
 const observers = new WeakMap();
+// Cache last-written columnStates per folder URI. Avoids repeated .msf DB writes
+// on every folderURIChanged when state is unchanged.
+const columnStatesCache = new Map();
 
 function injectStyle(doc) {
 	const existing = doc.getElementById(CARD_STYLE_ID);
@@ -142,8 +150,21 @@ function reorderHunoteColumn(win) {
 	try {
 		const folder = win.gFolder;
 		if (!folder) { dump("HuNote reorder: no gFolder yet\n"); return; }
+
+		// Use cachedDBForFolder — returns null if DB not open, avoiding the
+		// implicit openFolderDB() invocation that races with the IMAP thread.
+		// Property `folder.msgDatabase` used to call openFolderDB internally →
+		// stale nsIFile* ptr in DB cache → SIGSEGV in nsMsgDatabase::MatchDbName
+		// (crash #13, incompletely fixed in v0.1.6; second call site → crash #16).
+		const db = dbService.cachedDBForFolder(folder);
+		if (!db) {
+			dump("HuNote reorder: DB not in cache, defer\n");
+			win.setTimeout(() => reorderHunoteColumn(win), 500);
+			return;
+		}
+
 		let stateStr = "";
-		try { stateStr = folder.msgDatabase.dBFolderInfo.getCharProperty("columnStates"); } catch (_) {}
+		try { stateStr = db.dBFolderInfo.getCharProperty("columnStates"); } catch (_) {}
 		let state;
 		if (stateStr) {
 			state = JSON.parse(stateStr);
@@ -162,7 +183,15 @@ function reorderHunoteColumn(win) {
 			if ((state[id].ordinal ?? 0) >= 6) state[id].ordinal += 1;
 		}
 		state[COLUMN_ID] = { visible: true, ordinal: 6 };
-		folder.msgDatabase.dBFolderInfo.setCharProperty("columnStates", JSON.stringify(state));
+
+		const newStr = JSON.stringify(state);
+		if (columnStatesCache.get(folder.URI) === newStr) {
+			dump("HuNote reorder: state unchanged, skip write\n");
+			return;
+		}
+		db.dBFolderInfo.setCharProperty("columnStates", newStr);
+		columnStatesCache.set(folder.URI, newStr);
+
 		win.threadPane.applyPersistedColumnsState(state);
 		win.threadPane.updateColumns(false);
 		win.threadTree.reset();
@@ -188,26 +217,40 @@ function attachToAbout3Pane(win) {
 
 	reorderHunoteColumn(win);
 
+	// Debounce folderURIChanged — TB may fire multiple events in quick succession
+	// during folder switch; coalesce to a single reorder pass 200ms after last event.
+	let reorderDebounce = null;
 	win.addEventListener("folderURIChanged", () => {
-		dump("HuNote: folderURIChanged, re-applying reorder\n");
-		reorderHunoteColumn(win);
-		win.setTimeout(() => {
-			try { ThreadPaneColumns.refreshCustomColumn(COLUMN_ID); } catch (_) {}
-			scanAll(win);
-		}, 1500);
+		if (reorderDebounce) win.clearTimeout(reorderDebounce);
+		reorderDebounce = win.setTimeout(() => {
+			reorderDebounce = null;
+			dump("HuNote: folderURIChanged, re-applying reorder\n");
+			reorderHunoteColumn(win);
+			win.setTimeout(() => {
+				try { ThreadPaneColumns.refreshCustomColumn(COLUMN_ID); } catch (_) {}
+				scanAll(win);
+			}, 1500);
+		}, 200);
 	});
 
 	const mo = new win.MutationObserver((mutations) => {
 		for (const m of mutations) {
 			for (const node of m.addedNodes) {
 				if (node.nodeType !== 1) continue;
-				if (node.matches && node.matches('tr.card-layout, tr[is="thread-row"]')) tagRow(win, node);
+				// Skip rows without a valid _index (detached / post-reset rows).
+				// Avoids "HuNote tagRow skip: idx=undefined" spam and reduces
+				// pressure on getMsgHdrAt (potential race with IMAP thread).
+				if (node.matches && node.matches('tr.card-layout, tr[is="thread-row"]')) {
+					if (typeof node._index === "number" && node._index >= 0) tagRow(win, node);
+				}
 				if (node.querySelectorAll) {
-					for (const r of node.querySelectorAll('tr.card-layout, tr[is="thread-row"]')) tagRow(win, r);
+					for (const r of node.querySelectorAll('tr.card-layout, tr[is="thread-row"]')) {
+						if (typeof r._index === "number" && r._index >= 0) tagRow(win, r);
+					}
 				}
 			}
 			if (m.type === "attributes" && m.target.matches && m.target.matches('tr.card-layout, tr[is="thread-row"]')) {
-				tagRow(win, m.target);
+				if (typeof m.target._index === "number" && m.target._index >= 0) tagRow(win, m.target);
 			}
 		}
 	});
