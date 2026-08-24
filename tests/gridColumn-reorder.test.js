@@ -21,17 +21,25 @@ function extractFunction(src, name) {
 }
 
 let reorderHunoteColumn;
+let dbHolder;
+let observersRef;
 
 beforeAll(() => {
 	const body = [
 		'const COLUMN_ID = "hunoteColumn";',
 		'const dump = () => {};',
+		'const columnStatesCache = new Map();',
+		'const observers = observersRef;',
+		'const dbService = { cachedDBForFolder: () => dbHolder.db };',
 		extractFunction(SRC, 'reorderHunoteColumn'),
 		'return { reorderHunoteColumn };',
 	].join('\n');
-	({ reorderHunoteColumn } = new Function(body)());
+	dbHolder = { db: null };
+	observersRef = new WeakMap();
+	({ reorderHunoteColumn } = new Function('dbHolder', 'observersRef', body)(dbHolder, observersRef));
 });
 
+let uriCounter = 0;
 function mockWin({ existingState = null, threadPaneColumns = [] } = {}) {
 	const dbInfo = {
 		_state: existingState ? JSON.stringify(existingState) : '',
@@ -43,9 +51,10 @@ function mockWin({ existingState = null, threadPaneColumns = [] } = {}) {
 			if (key === 'columnStates') this._state = val;
 		}),
 	};
+	const db = { dBFolderInfo: dbInfo };
 	const win = {
 		gFolder: {
-			msgDatabase: { dBFolderInfo: dbInfo },
+			URI: `imap://test/folder${++uriCounter}`,
 		},
 		threadPane: {
 			columns: threadPaneColumns,
@@ -53,8 +62,17 @@ function mockWin({ existingState = null, threadPaneColumns = [] } = {}) {
 			updateColumns: vi.fn(),
 		},
 		threadTree: { reset: vi.fn() },
+		setTimeout: vi.fn(),
+		document: { getElementById: vi.fn(() => ({ _isTreeStub: true })) },
 	};
+	dbHolder.db = db;
 	return { win, dbInfo };
+}
+
+function installObserver(win) {
+	const mo = { disconnect: vi.fn(), observe: vi.fn() };
+	observersRef.set(win, mo);
+	return mo;
 }
 
 function persistedState(dbInfo) {
@@ -129,6 +147,48 @@ describe('reorderHunoteColumn', () => {
 		expect(s.sizecol.visible).toBe(false);
 	});
 
+	it('defers via setTimeout when cachedDBForFolder returns null (crash #16 guard)', () => {
+		const { win } = mockWin({});
+		dbHolder.db = null;
+		reorderHunoteColumn(win);
+		expect(win.setTimeout).toHaveBeenCalledOnce();
+		expect(win.threadPane.applyPersistedColumnsState).not.toHaveBeenCalled();
+		expect(win.threadTree.reset).not.toHaveBeenCalled();
+	});
+
+	it('deferred run skips itself if folder switched away in the meantime', () => {
+		const { win } = mockWin({});
+		const originalURI = win.gFolder.URI;
+		dbHolder.db = null;
+		// Capture the deferred callback so we can invoke it manually.
+		let deferredFn = null;
+		win.setTimeout = vi.fn((fn) => { deferredFn = fn; });
+		reorderHunoteColumn(win);
+		expect(deferredFn).not.toBeNull();
+
+		// Simulate folder switch before the deferred timer fires.
+		win.gFolder = { URI: originalURI + '-different' };
+		// Even if DB becomes available for the NEW folder, we must not touch it.
+		dbHolder.db = { dBFolderInfo: { getCharProperty: vi.fn(), setCharProperty: vi.fn() } };
+		deferredFn();
+		expect(dbHolder.db.dBFolderInfo.getCharProperty).not.toHaveBeenCalled();
+		expect(dbHolder.db.dBFolderInfo.setCharProperty).not.toHaveBeenCalled();
+	});
+
+	it('skips setCharProperty on repeat when state unchanged (crash #16 guard)', () => {
+		const { win, dbInfo } = mockWin({
+			existingState: {
+				subjectcol: { visible: true, ordinal: 5 },
+				datecol: { visible: true, ordinal: 6 },
+			},
+		});
+		reorderHunoteColumn(win);
+		expect(dbInfo.setCharProperty).toHaveBeenCalledOnce();
+		dbInfo.setCharProperty.mockClear();
+		reorderHunoteColumn(win);
+		expect(dbInfo.setCharProperty).not.toHaveBeenCalled();
+	});
+
 	it('handles column with missing ordinal (treats as 0, does not shift)', () => {
 		const { win, dbInfo } = mockWin({
 			existingState: {
@@ -142,5 +202,39 @@ describe('reorderHunoteColumn', () => {
 		expect(s.weirdcol.ordinal).toBeUndefined(); // < 6 (treated as 0), no shift
 		expect(s.datecol.ordinal).toBe(7);
 		expect(s.hunoteColumn.ordinal).toBe(6);
+	});
+
+	it('brackets threadTree.reset() with observer disconnect + re-attach', () => {
+		const { win } = mockWin({
+			existingState: {
+				hunoteColumn: { visible: false, ordinal: 6 },
+				datecol: { visible: true, ordinal: 7 },
+			},
+		});
+		const mo = installObserver(win);
+		reorderHunoteColumn(win);
+		expect(mo.disconnect).toHaveBeenCalledOnce();
+		expect(win.threadTree.reset).toHaveBeenCalledOnce();
+		expect(mo.observe).toHaveBeenCalledOnce();
+		// Order: disconnect BEFORE reset, observe AFTER reset.
+		const discOrder = mo.disconnect.mock.invocationCallOrder[0];
+		const resetOrder = win.threadTree.reset.mock.invocationCallOrder[0];
+		const obsOrder = mo.observe.mock.invocationCallOrder[0];
+		expect(discOrder).toBeLessThan(resetOrder);
+		expect(resetOrder).toBeLessThan(obsOrder);
+	});
+
+	it('re-attaches observer even when threadTree.reset() throws (finally-block guarantee)', () => {
+		const { win } = mockWin({
+			existingState: {
+				hunoteColumn: { visible: false, ordinal: 6 },
+				datecol: { visible: true, ordinal: 7 },
+			},
+		});
+		const mo = installObserver(win);
+		win.threadTree.reset = vi.fn(() => { throw new Error('simulated reset failure'); });
+		reorderHunoteColumn(win); // outer try/catch swallows
+		expect(mo.disconnect).toHaveBeenCalledOnce();
+		expect(mo.observe).toHaveBeenCalledOnce(); // MUST re-attach despite throw
 	});
 });

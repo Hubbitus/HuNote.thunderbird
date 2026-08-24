@@ -5,6 +5,21 @@ Cu.importGlobalProperties(["TextEncoder", "TextDecoder", "atob", "btoa"]);
 var { ExtensionCommon } = ChromeUtils.importESModule("resource://gre/modules/ExtensionCommon.sys.mjs");
 var { MailServices } = ChromeUtils.importESModule("resource:///modules/MailServices.sys.mjs");
 
+// Fetch a msgHdr by key without triggering implicit openFolderDB() on
+// folder.msgDatabase — that property invocation races with the IMAP thread and
+// crashes in nsMsgDatabase::MatchDbName (SIGSEGV crash #13/#16). Prefer the
+// already-cached DB via nsIMsgDBService; fall back to null if not open.
+function safeGetHdrForKey(folder, key) {
+	try {
+		const svc = Cc["@mozilla.org/msgDatabase/msgDBService;1"].getService(Ci.nsIMsgDBService);
+		const db = svc.cachedDBForFolder(folder);
+		if (!db) return null;
+		return db.getMsgHdrForKey(key);
+	} catch (_) {
+		return null;
+	}
+}
+
 function findMsgHdrByMessageId(messageId) {
 	const all = findAllMsgHdrsByMessageId(messageId);
 	if (!all.length) return null;
@@ -255,7 +270,9 @@ this.imapNote = class extends ExtensionCommon.ExtensionAPI {
 					const newKey = await appendMessage(folder, tmpFile, flags, keywords);
 					deleteAllOldCopies(allHdrs);
 
-					const newHdr = folder.msgDatabase.getMsgHdrForKey(newKey);
+					// Use cached DB to avoid implicit openFolderDB race with IMAP thread
+					// (SIGSEGV in nsMsgDatabase::MatchDbName — crash #13/#16).
+					const newHdr = safeGetHdrForKey(folder, newKey);
 					return { newMessageId: newHdr?.messageId ?? messageId };
 				},
 				async deleteNote(messageId, options) {
@@ -274,7 +291,9 @@ this.imapNote = class extends ExtensionCommon.ExtensionAPI {
 					const newKey = await appendMessage(folder, tmpFile, flags, keywords);
 					deleteAllOldCopies(allHdrs);
 
-					const newHdr = folder.msgDatabase.getMsgHdrForKey(newKey);
+					// Use cached DB to avoid implicit openFolderDB race with IMAP thread
+					// (SIGSEGV in nsMsgDatabase::MatchDbName — crash #13/#16).
+					const newHdr = safeGetHdrForKey(folder, newKey);
 					return { newMessageId: newHdr?.messageId ?? messageId };
 				},
 				async getHostname() {
