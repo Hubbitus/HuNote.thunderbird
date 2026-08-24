@@ -47,11 +47,13 @@ function findHdrInFolder(accountId, folderPath, messageId) {
 	if (!folder) return null;
 	try {
 		const svc = Cc["@mozilla.org/msgDatabase/msgDBService;1"].getService(Ci.nsIMsgDBService);
-		let db = null;
-		try { db = svc.openFolderDB(folder, false); } catch (_) { db = null; }
-		if (!db) {
-			try { db = folder.msgDatabase; } catch (_) { db = null; }
-		}
+		// cachedDBForFolder does NOT trigger openFolderDB — that XPCOM call races
+		// with the IMAP thread and crashes in nsMsgDatabase::MatchDbName (crash
+		// #16, live-verified backtrace on v0.1.7). If DB not yet cached, return
+		// null: the message shows no badge for this load; once user opens the
+		// folder DB gets cached and subsequent reads succeed. Better missing
+		// badge than SIGSEGV.
+		const db = svc.cachedDBForFolder(folder);
 		if (!db) return null;
 		const candidates = [];
 		const e = db.enumerateMessages();
@@ -150,18 +152,16 @@ function findAllMsgHdrsByMessageId(messageId) {
 }
 
 function collectFromFolderTree(folder, messageId, out) {
-	// msgDatabase is lazy — accessing it forces open. Use getDatabaseWOReparse
-	// via nsIMsgDBService to avoid full reparse for large folders. Fallback to
-	// direct .msgDatabase getter which also triggers open.
+	// Use cachedDBForFolder — openFolderDB / .msgDatabase both trigger
+	// nsMsgDBService::OpenFolderDB which races IMAP thread (crash #16 SIGSEGV
+	// in nsMsgDatabase::MatchDbName). If DB not cached for this folder, skip
+	// it (message just won't be found in that folder — acceptable degradation).
 	try {
 		let db = null;
 		try {
 			const svc = Cc["@mozilla.org/msgDatabase/msgDBService;1"].getService(Ci.nsIMsgDBService);
-			try { db = svc.openFolderDB(folder, false); } catch (_) { db = null; }
+			db = svc.cachedDBForFolder(folder);
 		} catch (_) { /* service unavailable */ }
-		if (!db) {
-			try { db = folder.msgDatabase; } catch (_) { db = null; }
-		}
 		if (db) {
 			const e = db.enumerateMessages();
 			while (e.hasMoreElements()) {
