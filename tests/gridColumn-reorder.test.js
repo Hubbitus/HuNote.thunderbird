@@ -146,6 +146,25 @@ describe('reorderHunoteColumn', () => {
 		expect(win.threadTree.reset).not.toHaveBeenCalled();
 	});
 
+	it('deferred run skips itself if folder switched away in the meantime', () => {
+		const { win } = mockWin({});
+		const originalURI = win.gFolder.URI;
+		dbHolder.db = null;
+		// Capture the deferred callback so we can invoke it manually.
+		let deferredFn = null;
+		win.setTimeout = vi.fn((fn) => { deferredFn = fn; });
+		reorderHunoteColumn(win);
+		expect(deferredFn).not.toBeNull();
+
+		// Simulate folder switch before the deferred timer fires.
+		win.gFolder = { URI: originalURI + '-different' };
+		// Even if DB becomes available for the NEW folder, we must not touch it.
+		dbHolder.db = { dBFolderInfo: { getCharProperty: vi.fn(), setCharProperty: vi.fn() } };
+		deferredFn();
+		expect(dbHolder.db.dBFolderInfo.getCharProperty).not.toHaveBeenCalled();
+		expect(dbHolder.db.dBFolderInfo.setCharProperty).not.toHaveBeenCalled();
+	});
+
 	it('skips setCharProperty on repeat when state unchanged (crash #16 guard)', () => {
 		const { win, dbInfo } = mockWin({
 			existingState: {

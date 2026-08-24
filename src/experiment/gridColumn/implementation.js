@@ -159,7 +159,18 @@ function reorderHunoteColumn(win) {
 		const db = dbService.cachedDBForFolder(folder);
 		if (!db) {
 			dump("HuNote reorder: DB not in cache, defer\n");
-			win.setTimeout(() => reorderHunoteColumn(win), 500);
+			// Capture folder URI at schedule time; on wake-up, only re-run if the
+			// window is still showing the SAME folder. Otherwise the debounced
+			// folderURIChanged handler already queued a fresh reorder for the new
+			// folder — skip this stale one.
+			const capturedURI = folder.URI;
+			win.setTimeout(() => {
+				if (win.gFolder && win.gFolder.URI === capturedURI) {
+					reorderHunoteColumn(win);
+				} else {
+					dump("HuNote reorder: folder changed since defer, skip stale run\n");
+				}
+			}, 500);
 			return;
 		}
 
@@ -256,6 +267,17 @@ function attachToAbout3Pane(win) {
 	});
 	mo.observe(tree, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-properties"] });
 	observers.set(win, mo);
+
+	// Disconnect MutationObserver + cancel pending debounce on window unload.
+	// WeakMap alone doesn't disconnect the observer — the DOM subtree holds a
+	// strong ref until GC, and callbacks can still fire on a dying window.
+	win.addEventListener("unload", () => {
+		try { mo.disconnect(); } catch (_) {}
+		if (reorderDebounce) { try { win.clearTimeout(reorderDebounce); } catch (_) {} }
+		observers.delete(win);
+		watchedWindows.delete(win);
+		dump("HuNote: about:3pane unload, observer disconnected\n");
+	}, { once: true });
 
 	scanAll(win);
 }
