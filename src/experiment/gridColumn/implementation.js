@@ -127,10 +127,18 @@ function injectStyle(doc) {
 function tagRow(win, row) {
 	try {
 		if (!row.tagName || row.tagName.toUpperCase() !== "TR") return;
+		// Row detached from DOM (post-reset, pre-GC): getMsgHdrAt(idx) may
+		// still return a valid-but-WRONG msgHdr from the rebuilt view because
+		// the row's _index now refers to a different message. Skip these.
+		if (!row.isConnected) return;
 		const idx = row._index;
 		if (typeof idx !== "number" || idx < 0) { dump("HuNote tagRow skip: idx=" + idx + "\n"); return; }
 		const view = win.gDBView;
 		if (!view) return;
+		// Guard against idx pointing past current view length (stale idx after
+		// threadTree.reset()). Without this, getMsgHdrAt can throw or return
+		// a header from an old thread grouping.
+		if (typeof view.rowCount === "number" && idx >= view.rowCount) return;
 		const msgHdr = view.getMsgHdrAt(idx);
 		if (!msgHdr) return;
 		row.setAttribute(CARD_BADGE_ATTR, hasNote(msgHdr) ? "1" : "0");
@@ -205,7 +213,16 @@ function reorderHunoteColumn(win) {
 
 		win.threadPane.applyPersistedColumnsState(state);
 		win.threadPane.updateColumns(false);
+		// Disconnect MutationObserver across the reset: reset() detaches all rows
+		// and rebuilds them, generating a burst of mutations on rows whose _index
+		// no longer maps to the correct msgHdr. scanAll(win) below re-tags fresh.
+		const mo = observers.get(win);
+		if (mo) { try { mo.disconnect(); } catch (_) {} }
 		win.threadTree.reset();
+		if (mo) {
+			const tree = win.document.getElementById("threadTree");
+			if (tree) mo.observe(tree, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-properties"] });
+		}
 		dump("HuNote reorder: applied, HuNote at ordinal 6\n");
 	} catch (e) { dump("HuNote reorder error: " + e + "\n"); }
 }

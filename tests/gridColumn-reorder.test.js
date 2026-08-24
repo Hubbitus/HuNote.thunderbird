@@ -28,6 +28,7 @@ beforeAll(() => {
 		'const COLUMN_ID = "hunoteColumn";',
 		'const dump = () => {};',
 		'const columnStatesCache = new Map();',
+		'const observers = new WeakMap();',
 		'const dbService = { cachedDBForFolder: () => dbHolder.db };',
 		extractFunction(SRC, 'reorderHunoteColumn'),
 		'return { reorderHunoteColumn };',
