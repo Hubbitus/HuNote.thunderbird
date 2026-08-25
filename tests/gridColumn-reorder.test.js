@@ -55,6 +55,7 @@ function mockWin({ existingState = null, threadPaneColumns = [] } = {}) {
 	const win = {
 		gFolder: {
 			URI: `imap://test/folder${++uriCounter}`,
+			databaseOpen: true,
 		},
 		threadPane: {
 			columns: threadPaneColumns,

@@ -12,6 +12,9 @@ const READER_SRC = readFileSync(
 function installBrowser({ messageId, note, i18n = {}, accountId = 'acct1', folderPath = '/INBOX' }) {
 	const listeners = [];
 	const menuListeners = [];
+	const displayed = messageId
+		? { messages: [{ headerMessageId: messageId, folder: { accountId, path: folderPath } }] }
+		: { messages: [] };
 	globalThis.browser = {
 		runtime: {
 			sendMessage: vi.fn(async (req) => {
@@ -24,6 +27,9 @@ function installBrowser({ messageId, note, i18n = {}, accountId = 'acct1', folde
 				addListener: vi.fn((fn) => listeners.push(fn)),
 				_emit: (m) => Promise.all(listeners.map((fn) => fn(m))),
 			},
+		},
+		messageDisplay: {
+			getDisplayedMessages: vi.fn(async () => displayed),
 		},
 		i18n: { getMessage: (k) => i18n[k] ?? '' },
 		menus: {
@@ -54,6 +60,54 @@ describe('reader.js inline render', () => {
 		await runReader();
 		expect(document.querySelector('#hunote-inline')).toBeNull();
 	}, 10000);
+
+	it('uses browser.messageDisplay.getDisplayedMessages (scope-local, not IPC round-trip)', async () => {
+		installBrowser({
+			messageId: 'm1',
+			note: { text: 'hi', version: 1, versions: [], timestamp: 'x', source: null },
+		});
+		await runReader();
+		expect(globalThis.browser.messageDisplay.getDisplayedMessages).toHaveBeenCalledTimes(1);
+		const calls = globalThis.browser.runtime.sendMessage.mock.calls.map((c) => c[0].kind);
+		expect(calls).not.toContain('currentMessageId'); // no IPC needed for location
+		expect(calls).toContain('load');
+	});
+
+	it('falls back to IPC currentMessageId when browser.messageDisplay is undefined', async () => {
+		installBrowser({
+			messageId: 'm1',
+			note: { text: 'hi', version: 1, versions: [], timestamp: 'x', source: null },
+		});
+		delete globalThis.browser.messageDisplay;
+		await runReader();
+		expect(document.querySelector('#hunote-inline')).not.toBeNull();
+		const kinds = globalThis.browser.runtime.sendMessage.mock.calls.map((c) => c[0].kind);
+		expect(kinds).toContain('currentMessageId'); // fallback path used
+	});
+
+	it('render throw does not leak as uncaught (outer try/catch)', async () => {
+		installBrowser({
+			messageId: 'm1',
+			note: { text: 't', version: 1, versions: [], timestamp: 'x', source: null },
+		});
+		// Sabotage messageDisplay to throw synchronously — outer catch must swallow.
+		globalThis.browser.messageDisplay.getDisplayedMessages = vi.fn(() => { throw new Error('boom'); });
+		// If this leaks, vitest will fail with unhandled rejection.
+		await runReader();
+		// Fallback IPC still runs after messageDisplay throw → inline renders.
+		expect(document.querySelector('#hunote-inline')).not.toBeNull();
+	});
+
+	it('menu install skipped when browser.menus is undefined (message_display_scripts scope guard)', async () => {
+		installBrowser({
+			messageId: 'm1',
+			note: { text: 't', version: 1, versions: [], timestamp: 'x', source: null },
+		});
+		delete globalThis.browser.menus;
+		await runReader();
+		// no throw, inline still renders
+		expect(document.querySelector('#hunote-inline')).not.toBeNull();
+	});
 
 	it('renders nothing when note load errors', async () => {
 		installBrowser({ messageId: 'm1', note: { error: 'boom' } });
@@ -386,6 +440,11 @@ describe('reader.js inline render', () => {
 					addListener(fn) { this._listeners.push(fn); },
 					emit(m) { return Promise.all(this._listeners.map((fn) => fn(m))); },
 				},
+			},
+			messageDisplay: {
+				getDisplayedMessages: vi.fn(async () => ({
+					messages: [{ headerMessageId: 'm1', folder: { accountId: 'a', path: '/I' } }],
+				})),
 			},
 			i18n: { getMessage: () => '' },
 			menus: {

@@ -159,11 +159,23 @@ function reorderHunoteColumn(win) {
 		const folder = win.gFolder;
 		if (!folder) { dump("HuNote reorder: no gFolder yet\n"); return; }
 
-		// Use cachedDBForFolder — returns null if DB not open, avoiding the
-		// implicit openFolderDB() invocation that races with the IMAP thread.
-		// Property `folder.msgDatabase` used to call openFolderDB internally →
-		// stale nsIFile* ptr in DB cache → SIGSEGV in nsMsgDatabase::MatchDbName
-		// (crash #13, incompletely fixed in v0.1.6; second call site → crash #16).
+		// Two-stage guard: (1) folder.databaseOpen — plain bool getter, no cache
+		// walk, MT-safe. Prevents entering cachedDBForFolder which walks the
+		// unlocked m_dbCache list (IMAP thread mutates it → SIGSEGV in
+		// nsMsgDatabase::MatchDbName, crash #16 v0.1.8 live backtrace).
+		// (2) cachedDBForFolder null result → defer as before.
+		if (!folder.databaseOpen) {
+			dump("HuNote reorder: databaseOpen=false, defer\n");
+			const capturedURI = folder.URI;
+			win.setTimeout(() => {
+				if (win.gFolder && win.gFolder.URI === capturedURI) {
+					reorderHunoteColumn(win);
+				} else {
+					dump("HuNote reorder: folder changed since defer, skip stale run\n");
+				}
+			}, 500);
+			return;
+		}
 		const db = dbService.cachedDBForFolder(folder);
 		if (!db) {
 			dump("HuNote reorder: DB not in cache, defer\n");

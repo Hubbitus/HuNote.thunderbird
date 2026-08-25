@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# E2E: persistence roundtrip (6-step) against REAL Gmail account.
+# E2E: readNote fallback against REAL Gmail with Cyrillic-named label.
 #
 # MANUAL ONLY — NEVER runs in CI. Requires:
 #   HUNOTE_GMAIL_REAL=1   explicit opt-in guard
-#   dev-scripts/.env      contains IMAP_USER / IMAP_PASS (App Password); .gitignored
+#   dev-scripts/.env      IMAP_USER / IMAP_PASS (Gmail App Password); .gitignored
 #
-# Reuses existing .tmp/test-profile (already configured for test@hubbitus.com.ru + Gmail IMAP).
-# TB must NOT already be running against that profile — script will launch it fresh.
-# Cleanup: best-effort in test finally block — SEARCHes test-tag subject prefix + EXPUNGEs
-# in autotest / INBOX / [Gmail]/Вся почта.
+# Reuses .tmp/test-profile (must be pre-configured for the Gmail account).
+# Creates label "Заметки-тест-<timestamp>" on Gmail, appends fixture msg, drives
+# TB via marionette to writeNote + readNote in that folder, then cleans up.
+# Test proves mUTF-7 folderPath vs decoded folder.name mismatch is handled by
+# the readNote fallback (findMsgHdrByMessageId). Pre-fix: inline shows empty.
 set -euo pipefail
 
 if [ "${HUNOTE_GMAIL_REAL:-0}" != "1" ]; then
@@ -36,16 +37,14 @@ if [ ! -d "$PROFILE_DIR" ]; then
 	exit 2
 fi
 
-# Make sure no stale TB against this profile is running
 pkill -f "profile $PROFILE_DIR" 2>/dev/null || true
 sleep 1
 
-# Build + install XPI into the existing profile via marionette (same path as _setup.sh)
 export MARIONETTE_PORT="${MARIONETTE_PORT:-2828}"
 echo "== build XPI =="
 make pack >/dev/null
-# Makefile builds versioned name (dist/hunote-<version>.xpi, e.g. hunote-20260825131913.xpi
-# when git-dirty). No unversioned symlink — pick the newest xpi in dist/.
+# Makefile builds versioned name (dist/hunote-<version>.xpi). No unversioned symlink —
+# pick the newest xpi in dist/.
 XPI_ABS="$(readlink -f "$(ls -t dist/hunote-*.xpi | head -1)")"
 test -f "$XPI_ABS" || { echo "REFUSED: no XPI in dist/ after 'make pack'"; exit 3; }
 echo "XPI: $XPI_ABS"
@@ -56,7 +55,7 @@ grep -q 'marionette.port' "$PROFILE_DIR/user.js" 2>/dev/null || \
 
 echo "== launch TB (GUI=${GUI:-0}) =="
 if [ "${GUI:-0}" = "1" ]; then LAUNCHER=""; else LAUNCHER="xvfb-run -a"; fi
-LOG_FILE=".tmp/e2e-tb-gmail-real.log"
+LOG_FILE=".tmp/e2e-tb-gmail-cyr.log"
 mkdir -p .tmp
 $LAUNCHER thunderbird -profile "$PROFILE_DIR" -no-remote \
 	-marionette -remote-allow-system-access \
@@ -98,16 +97,15 @@ with m.using_context("chrome"):
 m.delete_session()
 PYEOF
 
-echo "== run persistence_roundtrip_test.py (gmail-real) =="
+echo "== run gmail_cyrillic_folder_test.py =="
 RC=0
 set +e
 HUNOTE_BACKEND=gmail-real \
 	HUNOTE_GMAIL_USER="$IMAP_USER" \
 	HUNOTE_GMAIL_APP_PASS="$IMAP_PASS" \
 	PROFILE_DIR="$PROFILE_DIR" \
-	HUNOTE_STORAGE_WIPE_GLOB="${PROFILE_DIR}/ImapMail/smtp.google.com.*" \
 	MARIONETTE_PORT="$MARIONETTE_PORT" \
-	uv run --with marionette-driver --python 3.11 python "$HERE/persistence_roundtrip_test.py"
+	uv run --with marionette-driver --python 3.11 python "$HERE/gmail_cyrillic_folder_test.py"
 RC=$?
 set -e
 
@@ -117,5 +115,5 @@ if [ "${KEEP:-0}" != "1" ]; then
 else
 	echo "== KEEP=1 — leaving TB alive on $MARIONETTE_PORT =="
 fi
-echo "== gmail-real persistence roundtrip exit: $RC =="
+echo "== gmail-cyrillic e2e exit: $RC =="
 exit $RC

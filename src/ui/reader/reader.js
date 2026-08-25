@@ -2,16 +2,46 @@
 	async function render() {
 		document.getElementById('hunote-inline')?.remove();
 
-		let loc = null;
-		for (let i = 0; i < 20; i++) {
-			loc = await browser.runtime.sendMessage({ kind: 'currentMessageId' });
-			if (loc?.messageId) break;
-			await new Promise((r) => setTimeout(r, 250));
+		// message_display_scripts inject INTO the reader iframe: prefer the
+		// scope-local browser.messageDisplay API (no IPC round-trip). Fall
+		// back to background IPC if the API is unavailable in the current
+		// scope (some TB versions / privileged contexts hide it).
+		let messageId = null, accountId = null, folderPath = null;
+		console.debug('[HuNote] reader render start, messageDisplay=', !!browser.messageDisplay?.getDisplayedMessages);
+		try {
+			if (browser.messageDisplay?.getDisplayedMessages) {
+				const list = await browser.messageDisplay.getDisplayedMessages();
+				console.debug('[HuNote] getDisplayedMessages →', JSON.stringify(list));
+				const msg = list?.messages?.[0];
+				if (msg?.headerMessageId) {
+					messageId = msg.headerMessageId;
+					accountId = msg.folder?.accountId ?? null;
+					folderPath = msg.folder?.path ?? null;
+				}
+			}
+		} catch (e) {
+			console.error('[HuNote] messageDisplay.getDisplayedMessages failed:', e);
 		}
-		if (!loc?.messageId) return;
-		const { messageId, accountId, folderPath } = loc;
+		if (!messageId) {
+			console.debug('[HuNote] falling back to IPC currentMessageId');
+			for (let i = 0; i < 20; i++) {
+				try {
+					const loc = await browser.runtime.sendMessage({ kind: 'currentMessageId' });
+					if (loc?.messageId) {
+						messageId = loc.messageId;
+						accountId = loc.accountId ?? null;
+						folderPath = loc.folderPath ?? null;
+						break;
+					}
+				} catch (_) { /* bg reload race */ }
+				await new Promise((r) => setTimeout(r, 250));
+			}
+		}
+		console.debug('[HuNote] resolved locator:', { messageId, accountId, folderPath });
+		if (!messageId) return;
 
 		const note = await browser.runtime.sendMessage({ kind: 'load', messageId, accountId, folderPath });
+		console.debug('[HuNote] load →', JSON.stringify(note));
 		if (!note || note.error) return;
 
 		const hasText = typeof note.text === 'string' && note.text.length > 0;
@@ -140,7 +170,11 @@
 	// throws "id already exists" — swallowed here. onClicked listener would
 	// pile up per re-run → editor opens N times. Guard via globalThis flag
 	// (persists per iframe realm) so create + addListener run at most once.
-	if (!globalThis.__hunoteMenuInstalled) {
+	// browser.menus is NOT available in message_display_scripts scope in
+	// TB140+ (verified 2026-08-25 via reader.js:146 TypeError). The grid
+	// context-menu item is registered separately from background.js
+	// (contexts: ["message_list"]). Guard prevents spam.
+	if (!globalThis.__hunoteMenuInstalled && browser.menus?.create) {
 		globalThis.__hunoteMenuInstalled = true;
 		try {
 			browser.menus.create({
@@ -166,5 +200,9 @@
 		}
 	}
 
-	await render();
+	try {
+		await render();
+	} catch (e) {
+		console.error('[HuNote] reader render failed:', e);
+	}
 })();

@@ -6,11 +6,14 @@ var { ExtensionCommon } = ChromeUtils.importESModule("resource://gre/modules/Ext
 var { MailServices } = ChromeUtils.importESModule("resource:///modules/MailServices.sys.mjs");
 
 // Fetch a msgHdr by key without triggering implicit openFolderDB() on
-// folder.msgDatabase — that property invocation races with the IMAP thread and
-// crashes in nsMsgDatabase::MatchDbName (SIGSEGV crash #13/#16). Prefer the
-// already-cached DB via nsIMsgDBService; fall back to null if not open.
+// folder.msgDatabase and without walking nsIMsgDBService's m_dbCache — the
+// latter is ALSO not MT-safe (searchfox nsMsgDatabase.cpp: no lock around
+// m_dbCache iteration; nsMsgDatabase::MatchDbName SIGSEGV on race with IMAP
+// thread — live gdb backtrace on v0.1.8). folder.databaseOpen is a simple
+// bool getter (no cache walk), safe to call from main thread.
 function safeGetHdrForKey(folder, key) {
 	try {
+		if (!folder.databaseOpen) return null;
 		const svc = Cc["@mozilla.org/msgDatabase/msgDBService;1"].getService(Ci.nsIMsgDBService);
 		const db = svc.cachedDBForFolder(folder);
 		if (!db) return null;
@@ -46,13 +49,12 @@ function findHdrInFolder(accountId, folderPath, messageId) {
 	const folder = resolveFolder(accountId, folderPath);
 	if (!folder) return null;
 	try {
+		// databaseOpen (simple bool getter, no cache walk) MUST be checked first:
+		// cachedDBForFolder internally walks unlocked m_dbCache which races with
+		// IMAP thread → SIGSEGV in nsMsgDatabase::MatchDbName (crash #16 v0.1.8
+		// live backtrace).
+		if (!folder.databaseOpen) return null;
 		const svc = Cc["@mozilla.org/msgDatabase/msgDBService;1"].getService(Ci.nsIMsgDBService);
-		// cachedDBForFolder does NOT trigger openFolderDB — that XPCOM call races
-		// with the IMAP thread and crashes in nsMsgDatabase::MatchDbName (crash
-		// #16, live-verified backtrace on v0.1.7). If DB not yet cached, return
-		// null: the message shows no badge for this load; once user opens the
-		// folder DB gets cached and subsequent reads succeed. Better missing
-		// badge than SIGSEGV.
 		const db = svc.cachedDBForFolder(folder);
 		if (!db) return null;
 		const candidates = [];
@@ -152,26 +154,25 @@ function findAllMsgHdrsByMessageId(messageId) {
 }
 
 function collectFromFolderTree(folder, messageId, out) {
-	// Use cachedDBForFolder — openFolderDB / .msgDatabase both trigger
-	// nsMsgDBService::OpenFolderDB which races IMAP thread (crash #16 SIGSEGV
-	// in nsMsgDatabase::MatchDbName). If DB not cached for this folder, skip
-	// it (message just won't be found in that folder — acceptable degradation).
+	// Skip folders whose DB is not currently open — cachedDBForFolder walks an
+	// unlocked cache list that IMAP thread mutates → SIGSEGV. databaseOpen is
+	// a plain bool getter with no cache walk. Acceptable degradation: message
+	// found only in folders the user has already visited (DB cached by TB).
 	try {
-		let db = null;
-		try {
+		if (folder.databaseOpen) {
 			const svc = Cc["@mozilla.org/msgDatabase/msgDBService;1"].getService(Ci.nsIMsgDBService);
-			db = svc.cachedDBForFolder(folder);
-		} catch (_) { /* service unavailable */ }
-		if (db) {
-			const e = db.enumerateMessages();
-			while (e.hasMoreElements()) {
-				const h = e.getNext().QueryInterface(Ci.nsIMsgDBHdr);
-				if (h.messageId !== messageId) continue;
-				if (h.flags & Ci.nsMsgMessageFlags.IMAPDeleted) continue;
-				out.push(h);
+			const db = svc.cachedDBForFolder(folder);
+			if (db) {
+				const e = db.enumerateMessages();
+				while (e.hasMoreElements()) {
+					const h = e.getNext().QueryInterface(Ci.nsIMsgDBHdr);
+					if (h.messageId !== messageId) continue;
+					if (h.flags & Ci.nsMsgMessageFlags.IMAPDeleted) continue;
+					out.push(h);
+				}
 			}
 		}
-	} catch (_) { /* folder db not open */ }
+	} catch (_) { /* folder db not open or service failed */ }
 	for (const sub of folder.subFolders) collectFromFolderTree(sub, messageId, out);
 }
 
@@ -243,7 +244,15 @@ this.imapNote = class extends ExtensionCommon.ExtensionAPI {
 		return {
 			imapNote: {
 				async readNote(accountId, folderPath, messageId) {
-					const hdr = findHdrInFolder(accountId, folderPath, messageId);
+					// folderPath from WebExtension MailFolder.path is not guaranteed
+					// to be UTF-8: some TB versions return modified UTF-7 (IMAP wire
+					// format, e.g. "&BB0ENQRC-" for "Нет"). resolveFolder matches by
+					// folder.name (decoded) → mismatch → returns null → note read
+					// falsely reports empty. Fallback: tree-walk by messageId when
+					// folder resolve fails. Verified live 2026-08-25 (fsk.ru mailbox
+					// with Cyrillic folder names).
+					let hdr = findHdrInFolder(accountId, folderPath, messageId);
+					if (!hdr) hdr = findMsgHdrByMessageId(messageId);
 					if (!hdr) return { text: null, timestamp: null, source: null, version: 0, versions: [] };
 					// Fast path: if msgDB carries no x-hu-note property for THIS
 					// hdr, the copy in this folder has no note in MIME. Return

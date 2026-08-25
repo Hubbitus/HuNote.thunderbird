@@ -88,9 +88,11 @@ def _msgdb_probe(m: Marionette, messageId: str) -> dict:
 
 
 def sync_current_folder(m: Marionette) -> dict:
-    """Call updateFolder(null) on the currently-displayed 3pane folder.
-    Forces IMAP re-SELECT + header refresh — needed after writeNote lands
-    on a duplicate copy (Gmail label sibling) that TB hadn't touched locally."""
+    """Call updateFolder on the currently-displayed 3pane folder and wait for the
+    IMAP url to actually complete (nsIUrlListener.OnStopRunningUrl). Without the
+    listener the returning promise resolves before TB has re-SELECTed the mailbox,
+    so post-writeNote reselect races against a stale msgdb still holding the
+    pre-EXPUNGE UID (Gmail APPEND+EXPUNGE label semantics)."""
     with m.using_context("chrome"):
         return m.execute_async_script(r"""
             let resolve = arguments[0];
@@ -99,10 +101,28 @@ def sync_current_folder(m: Marionette) -> dict:
                 const about3Pane = win.document.getElementById("tabmail").currentAbout3Pane;
                 const folder = about3Pane.gFolder || about3Pane.displayedFolder;
                 if (!folder) { resolve({ok:false, err:"no displayed folder"}); return; }
-                await new Promise(res => { try { folder.updateFolder(null); } catch(_){} setTimeout(res, 2500); });
+                let listenerFired = false;
+                const done = new Promise(res => {
+                    const listener = {
+                        QueryInterface: ChromeUtils.generateQI(["nsIUrlListener"]),
+                        OnStartRunningUrl() {},
+                        OnStopRunningUrl(url, status) { listenerFired = true; res({status}); },
+                    };
+                    let ok = false;
+                    try { folder.updateFolderWithListener(null, listener); ok = true; }
+                    catch (e) {
+                        try { folder.updateFolder(null); ok = true; } catch(_){}
+                        if (!ok) res({status: -1, err: String(e)});
+                    }
+                });
+                const timeout = new Promise(res => setTimeout(() => res({timeout:true}), 15000));
+                const result = await Promise.race([done, timeout]);
+                // If listener never fired (fallback path or timeout), sleep long
+                // enough that IMAP fetch normally completes under load.
+                await new Promise(res => setTimeout(res, listenerFired ? 500 : 3000));
                 let count = 0;
                 try { for (const _ of folder.messages) count++; } catch(_){}
-                resolve({ok:true, uri:folder.URI, count});
+                resolve({ok:true, uri:folder.URI, count, sync:result});
             })();
         """)
 
@@ -334,14 +354,20 @@ def step3_verify_visible(m: Marionette, cfg: BackendConfig, subject: str, mid: s
     # Autotest folder
     sw = switch_to_folder(m, "^" + cfg.autotest_folder.split("/")[-1] + "$")
     assert_ok(sw.get("ok"), f"switched to autotest folder (err={sw.get('err')})")
-    sync_inbox(m)  # force server LIST on selected folder
-    time.sleep(3)
+    # Listener-based sync (nsIUrlListener.OnStopRunningUrl) instead of fixed sleep.
+    # Under CPU load Gmail label propagation + IMAP re-SELECT lag exceed any static
+    # timeout; the listener resolves on real IMAP round-trip completion.
+    _log(f"step3 autotest sync: {sync_current_folder(m)}")
     # Poll for row presence (dataHunote may be null/"0" before any note saved)
     cell1 = None
-    for _ in range(30):
-        cell1 = read_grid_cell(m, "^" + subject + "$")
-        if cell1.get("ok"): break
-        time.sleep(0.5)
+    for attempt in range(4):
+        for _ in range(30):
+            cell1 = read_grid_cell(m, "^" + subject + "$")
+            if cell1.get("ok"): break
+            time.sleep(0.5)
+        if cell1 and cell1.get("ok"): break
+        _log(f"step3 autotest row miss attempt {attempt+1}, re-syncing")
+        sync_current_folder(m)
     assert_ok(cell1 and cell1.get("ok"), f"row visible in autotest (err={cell1.get('err') if cell1 else 'none'})")
 
     # All Mail — Dovecot dup landed via sieve, Gmail label auto-populated
@@ -349,12 +375,16 @@ def step3_verify_visible(m: Marionette, cfg: BackendConfig, subject: str, mid: s
     assert_ok(not dup.get("err"), f"server dup in All Mail (err={dup.get('err')})")
     sw2 = switch_to_folder(m, cfg.all_mail_folder.split("/")[-1])
     assert_ok(sw2.get("ok"), f"switched to All Mail (err={sw2.get('err')})")
-    time.sleep(3)
+    _log(f"step3 All Mail sync: {sync_current_folder(m)}")
     cell2 = None
-    for _ in range(40):
-        cell2 = read_grid_cell(m, "^" + subject + "$")
-        if cell2.get("ok"): break
-        time.sleep(0.5)
+    for attempt in range(4):
+        for _ in range(40):
+            cell2 = read_grid_cell(m, "^" + subject + "$")
+            if cell2.get("ok"): break
+            time.sleep(0.5)
+        if cell2 and cell2.get("ok"): break
+        _log(f"step3 All Mail row miss attempt {attempt+1}, re-syncing")
+        sync_current_folder(m)
     assert_ok(cell2 and cell2.get("ok"), f"row visible in All Mail (err={cell2.get('err') if cell2 else 'none'})")
 
 
@@ -370,13 +400,27 @@ def step4_write_note_verify(m: Marionette, cfg: BackendConfig, subject: str, mid
     _close_editor_popup(m)
     assert_ok(res.get("ok"), f"note saved (err={res.get('err')}, status={res.get('status')!r})")
 
-    # Grid + inline in autotest
-    time.sleep(2)
-    sel2 = select_in_current_folder(m, "^" + subject + "$")
-    inline_a = wait_for_inline(m, note_text, timeout=15,
-                               reselect_subject="^" + subject + "$")
-    assert_ok(inline_a.get("matched") and inline_a["matched"]["bodyText"] == note_text,
-              f"inline note visible in autotest reader (matched={inline_a.get('matched')})")
+    # Grid + inline in autotest.
+    # Sync-then-reselect loop instead of wait_for_inline(reselect_subject=...):
+    # the latter's halfway nudge calls select_message() which force-switches the
+    # 3pane to INBOX (see reader_inline_test.select_message), stealing us out of
+    # autotest and making readNote race against the wrong folder context under load.
+    inline_a = None
+    for attempt in range(6):
+        time.sleep(3)
+        sync_res = sync_current_folder(m)
+        _log(f"autotest post-write sync attempt {attempt+1}: {sync_res}")
+        sel2 = select_in_current_folder(m, "^" + subject + "$")
+        if not sel2.get("ok"):
+            _log(f"autotest reselect attempt {attempt+1} miss: {sel2.get('err')}")
+            continue
+        inline_a = wait_for_inline(m, note_text, timeout=15)
+        if inline_a.get("matched") and inline_a["matched"].get("bodyText") == note_text:
+            _log(f"autotest inline hit on attempt {attempt+1}")
+            break
+        _log(f"autotest inline attempt {attempt+1} miss: matched={inline_a.get('matched')}")
+    assert_ok(inline_a and inline_a.get("matched") and inline_a["matched"]["bodyText"] == note_text,
+              f"inline note visible in autotest reader (matched={inline_a.get('matched') if inline_a else None})")
     cell_a = wait_for_grid_cell(m, "^" + subject + "$", want_present=True, timeout=15)
     assert_ok(cell_a.get("ok") and cell_a.get("dataHunote") == "1",
               f"autotest grid tagged (cell={cell_a})")
@@ -496,10 +540,23 @@ def step6_verify_after_resync(m: Marionette, cfg: BackendConfig, subject: str, n
     time.sleep(5)
     sel = select_in_current_folder(m, "^" + subject + "$")
     assert_ok(sel["ok"], f"post-wipe: msg still selectable in autotest (err={sel.get('err')})")
-    inline = wait_for_inline(m, note_text, timeout=25,
-                             reselect_subject="^" + subject + "$")
-    assert_ok(inline.get("matched") and inline["matched"]["bodyText"] == note_text,
-              f"post-wipe autotest inline shows note (matched={inline.get('matched')}) — proves note lives on server MIME")
+    # See step4 comment: avoid wait_for_inline(reselect_subject=...) — its halfway
+    # nudge calls select_message() which force-switches 3pane to INBOX, breaking
+    # the autotest folder context.
+    inline = None
+    for attempt in range(6):
+        sync_res = sync_current_folder(m)
+        _log(f"post-wipe autotest sync attempt {attempt+1}: {sync_res}")
+        sel_r = select_in_current_folder(m, "^" + subject + "$")
+        if not sel_r.get("ok"):
+            _log(f"post-wipe autotest reselect attempt {attempt+1} miss: {sel_r.get('err')}")
+            continue
+        inline = wait_for_inline(m, note_text, timeout=25)
+        if inline.get("matched") and inline["matched"].get("bodyText") == note_text:
+            break
+        _log(f"post-wipe autotest inline attempt {attempt+1} miss: matched={inline.get('matched')}")
+    assert_ok(inline and inline.get("matched") and inline["matched"]["bodyText"] == note_text,
+              f"post-wipe autotest inline shows note (matched={inline.get('matched') if inline else None}) — proves note lives on server MIME")
     cell = wait_for_grid_cell(m, "^" + subject + "$", want_present=True, timeout=20)
     assert_ok(cell.get("ok") and cell.get("dataHunote") == "1",
               f"post-wipe autotest grid tagged (cell={cell})")
@@ -510,9 +567,19 @@ def step6_verify_after_resync(m: Marionette, cfg: BackendConfig, subject: str, n
     time.sleep(5)
     sel2 = select_in_current_folder(m, "^" + subject + "$")
     assert_ok(sel2["ok"], f"post-wipe: msg still selectable in All Mail (err={sel2.get('err')})")
-    inline2 = wait_for_inline(m, note_text, timeout=25,
-                              reselect_subject="^" + subject + "$")
-    assert_ok(inline2.get("matched") and inline2["matched"]["bodyText"] == note_text,
+    inline2 = None
+    for attempt in range(6):
+        sync_res = sync_current_folder(m)
+        _log(f"post-wipe All Mail sync attempt {attempt+1}: {sync_res}")
+        sel_r2 = select_in_current_folder(m, "^" + subject + "$")
+        if not sel_r2.get("ok"):
+            _log(f"post-wipe All Mail reselect attempt {attempt+1} miss: {sel_r2.get('err')}")
+            continue
+        inline2 = wait_for_inline(m, note_text, timeout=25)
+        if inline2.get("matched") and inline2["matched"].get("bodyText") == note_text:
+            break
+        _log(f"post-wipe All Mail inline attempt {attempt+1} miss: matched={inline2.get('matched')}")
+    assert_ok(inline2 and inline2.get("matched") and inline2["matched"]["bodyText"] == note_text,
               f"post-wipe All Mail inline shows note — proves note propagated + persisted server-side")
 
 
