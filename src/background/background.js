@@ -93,23 +93,34 @@ browser.commands.onCommand.addListener(async (name) => {
 	await openEditorForLocator(msgLocator(msg));
 });
 
-// Context menu: right-click on a message in the grid → "HuNote: add note".
-// Mirrors Header Tools Lite pattern (contexts: ["message_list"]).
-// Right-click INSIDE the opened message body is added separately from
-// reader.js (message_display_script context) — background scope cannot inject
-// items into the reader iframe context menu.
+// Context menu: right-click on a message → "HuNote: add note".
+// Grid context (message_list) + body context (page/frame) both registered
+// from background scope. QNote reference (mlazdans/qnote) confirms this is
+// the working pattern; menus.create from message_display_scripts scope does
+// NOT inject into mailContext popup in TB140+.
 browser.menus.create({
 	id: 'hunote-add-note',
 	title: browser.i18n.getMessage('ctxAddNote'),
 	contexts: ['message_list'],
 });
+browser.menus.create({
+	id: 'hunote-add-note-body',
+	title: browser.i18n.getMessage('ctxAddNote'),
+	contexts: ['page', 'frame'],
+});
 
-browser.menus.onClicked.addListener(async (info, _tab) => {
-	if (info.menuItemId !== 'hunote-add-note') return;
+browser.menus.onClicked.addListener(async (info, tab) => {
+	if (info.menuItemId !== 'hunote-add-note' && info.menuItemId !== 'hunote-add-note-body') return;
 	if (!(await requireOnlineOrNotify())) return;
-	const msg = info.selectedMessages?.messages?.[0]
-		?? info.displayedMessages?.messages?.[0]
-		?? await currentDisplayedMessage();
+	let msg = info.selectedMessages?.messages?.[0]
+		?? info.displayedMessages?.messages?.[0];
+	if (!msg && tab?.id) {
+		try {
+			const list = await browser.messageDisplay.getDisplayedMessages(tab.id);
+			msg = Array.isArray(list) ? list[0] : list?.messages?.[0];
+		} catch {}
+	}
+	msg = msg ?? await currentDisplayedMessage();
 	if (!msg) {
 		browser.notifications.create({
 			type: 'basic',

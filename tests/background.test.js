@@ -380,4 +380,29 @@ describe('background context menu', () => {
 		expect(windowsCreate).not.toHaveBeenCalled();
 		expect(notify).toHaveBeenCalledOnce();
 	});
+
+	// Body context menu — right-click INSIDE opened message iframe.
+	// Regression: reader.js tried to register in message_display_scripts scope
+	// where browser.menus is undefined → item silently missing. Must live in
+	// background (contexts: page/frame).
+	it('registers hunote-add-note-body item for page + frame contexts', async () => {
+		installBrowser();
+		loadBg();
+		expect(globalThis.browser.menus.create).toHaveBeenCalledWith(expect.objectContaining({
+			id: 'hunote-add-note-body',
+			contexts: expect.arrayContaining(['page', 'frame']),
+		}));
+	});
+
+	it('opens editor when body-item clicked (falls back to currentDisplayedMessage)', async () => {
+		const { windowsCreate } = installBrowser({
+			selectedMsg: { headerMessageId: 'body@x', folder: { accountId: 'a', path: '/I' } },
+		});
+		loadBg();
+		await onMenuClickListener({ menuItemId: 'hunote-add-note-body' }, {});
+		expect(windowsCreate).toHaveBeenCalledWith(expect.objectContaining({
+			url: expect.stringContaining('messageId=body%40x'),
+			type: 'popup',
+		}));
+	});
 });

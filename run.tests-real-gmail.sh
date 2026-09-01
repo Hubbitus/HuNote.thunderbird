@@ -8,6 +8,7 @@
 # Scripts run (in order):
 #   1. tests/e2e/run-persistence-gmail-real.sh  — APPEND+EXPUNGE roundtrip
 #   2. tests/e2e/run-gmail-cyrillic-real.sh     — mUTF-7 folderPath fallback
+#   3. tests/e2e/run-context-menu-real.sh       — grid + body context menu items
 #
 # Usage:
 #   ./run.tests-real-gmail.sh              # headless
@@ -25,6 +26,7 @@ export HUNOTE_GMAIL_REAL=1
 SCRIPTS=(
 	"tests/e2e/run-persistence-gmail-real.sh"
 	"tests/e2e/run-gmail-cyrillic-real.sh"
+	"tests/e2e/run-context-menu-real.sh"
 )
 
 declare -A RESULTS
