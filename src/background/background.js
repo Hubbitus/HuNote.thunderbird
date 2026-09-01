@@ -116,7 +116,7 @@ browser.menus.onClicked.addListener(async (info, tab) => {
 		?? info.displayedMessages?.messages?.[0];
 	if (!msg && tab?.id) {
 		try {
-			const list = await browser.messageDisplay.getDisplayedMessages(tab.id);
+			const list = await browser.messageDisplay.getDisplayedMessages(tab);
 			msg = Array.isArray(list) ? list[0] : list?.messages?.[0];
 		} catch {}
 	}
