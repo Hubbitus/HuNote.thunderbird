@@ -344,12 +344,34 @@ describe('background context menu', () => {
 		}));
 	});
 
-	it('falls back to currentDisplayedMessage when selectedMessages absent', async () => {
+	it('uses messageDisplay.getDisplayedMessages when info empty but tab present', async () => {
 		const { windowsCreate } = installBrowser({
 			selectedMsg: { headerMessageId: 'fallback@x', folder: { accountId: 'a', path: '/I' } },
 		});
+		const getDisplayed = vi.fn(async () => (
+			{ messages: [{ headerMessageId: 'display@x', folder: { accountId: 'a', path: '/I' } }] }
+		));
+		globalThis.browser.messageDisplay = { getDisplayedMessages: getDisplayed };
 		loadBg();
-		await onMenuClickListener({ menuItemId: 'hunote-add-note' }, {});
+		await onMenuClickListener({ menuItemId: 'hunote-add-note' }, { id: 99 });
+		expect(getDisplayed).toHaveBeenCalledWith({ id: 99 });
+		expect(windowsCreate).toHaveBeenCalledWith(expect.objectContaining({
+			url: expect.stringContaining('messageId=display%40x'),
+		}));
+	});
+
+	it('falls back to currentDisplayedMessage when messageDisplay throws', async () => {
+		const { windowsCreate } = installBrowser({
+			selectedMsg: { headerMessageId: 'fallback@x', folder: { accountId: 'a', path: '/I' } },
+		});
+		const getDisplayed = vi.fn(async () => { throw new Error('api unavailable'); });
+		globalThis.browser.messageDisplay = { getDisplayedMessages: getDisplayed };
+		const getSelectedSpy = vi.spyOn(globalThis.browser.mailTabs, 'getSelectedMessages');
+		loadBg();
+		await onMenuClickListener({ menuItemId: 'hunote-add-note' }, { id: 99 });
+		expect(getDisplayed).toHaveBeenCalled();
+		// Fallback path invokes currentDisplayedMessage() → mailTabs.getSelectedMessages()
+		expect(getSelectedSpy).toHaveBeenCalled();
 		expect(windowsCreate).toHaveBeenCalledWith(expect.objectContaining({
 			url: expect.stringContaining('messageId=fallback%40x'),
 		}));
