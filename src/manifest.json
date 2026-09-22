@@ -8,7 +8,7 @@
     "gecko": {
       "id": "hunote@hubbitus.info",
       "strict_min_version": "140.0",
-      "strict_max_version": "154.*"
+      "strict_max_version": "156.*"
     }
   },
   "homepage_url": "https://github.com/Hubbitus/HuNote.thunderbird",
