@@ -33,7 +33,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        tb: ["140.14.0esr", "153.1.0esr", "154.0"]
+        tb: ["140.14.0esr", "153.1.0esr", "154.0", "156.0"]
         imap: [dovecot, greenmail]
     steps:
       - uses: actions/checkout@v7
