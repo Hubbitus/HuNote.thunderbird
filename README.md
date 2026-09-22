@@ -67,6 +67,10 @@ X-Hu-note-versions: <base64 UTF-8 of JSON [{text, timestamp, source, version}, .
 
 Long values fold per RFC 5322 (75 chars + `\r\n `). Base64 keeps binary/UTF-8 content safe through mail-relay munging.
 
+## Known issues
+
+- **Thunderbird 156**: editor popup shows an address bar at the top (`moz-extension://...`). Upstream regression unrelated to HuNote, fixed in TB 157 ([Mozilla Bug 2069369](https://bugzilla.mozilla.org/show_bug.cgi?id=2069369)). No workaround on our side.
+
 ## Install
 
 Pre-built XPI is not published yet. Build from source:
