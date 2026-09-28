@@ -13,8 +13,8 @@
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^4.1.11",
-    "jsdom": "^30.0.1",
+    "jsdom": "^30.1.1",
     "vitest": "^4.1.11",
-    "web-ext": "^10.6.0"
+    "web-ext": "^10.7.0"
   }
 }
